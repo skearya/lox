@@ -1,5 +1,6 @@
 mod scanner;
 mod token;
+mod expr;
 
 use std::{env, fs};
 
