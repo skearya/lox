@@ -1,15 +1,15 @@
-use crate::token::{Token, TokenKind};
+use crate::token::{Keyword, Literal, Token, TokenKind};
 
 #[derive(Debug)]
-pub struct Scanner<'a> {
-    source: &'a str,
+pub struct Scanner<'src> {
+    source: &'src str,
     start: usize,
     current: usize,
     line: usize,
 }
 
-impl<'a> Scanner<'a> {
-    pub fn new(source: &'a str) -> Self {
+impl<'src> Scanner<'src> {
+    pub fn new(source: &'src str) -> Self {
         Self {
             source,
             start: 0,
@@ -31,7 +31,7 @@ impl<'a> Scanner<'a> {
             .inspect(|c| self.current += c.len_utf8())
             .inspect(|&c| {
                 if c == '\n' {
-                    self.line += 1
+                    self.line += 1;
                 }
             })
     }
@@ -45,7 +45,7 @@ impl<'a> Scanner<'a> {
         }
     }
 
-    fn token(&mut self) -> Option<Token<'a>> {
+    fn token(&mut self) -> Option<Token<'src>> {
         self.start = self.current;
 
         let kind = match self.next()? {
@@ -90,7 +90,7 @@ impl<'a> Scanner<'a> {
         Some(token)
     }
 
-    pub fn tokens(&mut self) -> Vec<Token<'a>> {
+    pub fn tokens(&mut self) -> Vec<Token<'src>> {
         let mut tokens = vec![];
 
         while self.current < self.source.len() {
@@ -102,7 +102,7 @@ impl<'a> Scanner<'a> {
         tokens
     }
 
-    fn string(&mut self) -> Token<'a> {
+    fn string(&mut self) -> Token<'src> {
         loop {
             match self.next() {
                 Some('"') => break,
@@ -114,13 +114,13 @@ impl<'a> Scanner<'a> {
         let data = self.source[self.start + 1..self.current - 1].to_owned();
 
         Token {
-            kind: TokenKind::String(data),
+            kind: TokenKind::Literal(Literal::String(data)),
             lexeme: &self.source[self.start..self.current],
             line: self.line,
         }
     }
 
-    fn number(&mut self) -> Token<'a> {
+    fn number(&mut self) -> Token<'src> {
         while matches!(self.peek(), Some('0'..='9')) {
             self.next();
         }
@@ -136,48 +136,51 @@ impl<'a> Scanner<'a> {
 
         let data = self.source[self.start..self.current]
             .parse::<f64>()
+            .map(Literal::Number)
             .expect("expected parseable float");
 
         Token {
-            kind: TokenKind::Number(data),
+            kind: TokenKind::Literal(data),
             lexeme: &self.source[self.start..self.current],
             line: self.line,
         }
     }
 
-    fn identifier(&mut self) -> Token<'a> {
+    fn identifier(&mut self) -> Token<'src> {
         while matches!(self.peek(), Some('a'..='z' | 'A'..='Z' | '_')) {
             self.next();
         }
 
         let lexeme = &self.source[self.start..self.current];
-        let kind = Scanner::to_keyword(lexeme).unwrap_or(TokenKind::Identifier);
+        let literal = Scanner::to_keyword(lexeme)
+            .map(Literal::Keyword)
+            .unwrap_or_else(|| Literal::Identifier(lexeme.to_owned()));
 
         Token {
-            kind,
+            kind: TokenKind::Literal(literal),
             lexeme,
             line: self.line,
         }
     }
 
-    fn to_keyword(text: &str) -> Option<TokenKind> {
+    fn to_keyword(text: &str) -> Option<Keyword> {
         match text {
-            "and" => Some(TokenKind::And),
-            "class" => Some(TokenKind::Class),
-            "else" => Some(TokenKind::Else),
-            "false" => Some(TokenKind::False),
-            "for" => Some(TokenKind::For),
-            "fun" => Some(TokenKind::Fun),
-            "if" => Some(TokenKind::If),
-            "nil" => Some(TokenKind::Nil),
-            "or" => Some(TokenKind::Or),
-            "print" => Some(TokenKind::Print),
-            "return" => Some(TokenKind::Return),
-            "super" => Some(TokenKind::Super),
-            "this" => Some(TokenKind::This),
-            "true" => Some(TokenKind::True),
-            "var" => Some(TokenKind::Var),
-            "while" => Some(TokenKind::While),
+            "and" => Some(Keyword::And),
+            "class" => Some(Keyword::Class),
+            "else" => Some(Keyword::Else),
+            "false" => Some(Keyword::False),
+            "for" => Some(Keyword::For),
+            "fun" => Some(Keyword::Fun),
+            "if" => Some(Keyword::If),
+            "nil" => Some(Keyword::Nil),
+            "or" => Some(Keyword::Or),
+            "print" => Some(Keyword::Print),
+            "return" => Some(Keyword::Return),
+            "super" => Some(Keyword::Super),
+            "this" => Some(Keyword::This),
+            "true" => Some(Keyword::True),
+            "var" => Some(Keyword::Var),
+            "while" => Some(Keyword::While),
             _ => None,
         }
     }

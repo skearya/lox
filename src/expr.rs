@@ -1,27 +1,103 @@
-use crate::token::Token;
+use crate::token::{Token, TokenKind};
 
-struct Binary<'a> {
-    left: Expr<'a>,
-    operator: Token<'a>,
-    right: Expr<'a>,
+pub enum Operator {
+    Minus,
+    Plus,
+    Slash,
+    Star,
+    Bang,
+    BangEqual,
+    Equal,
+    EqualEqual,
+    Greater,
+    GreaterEqual,
+    Less,
+    LessEqual,
 }
 
-struct Grouping<'a> {
-    expr: Expr<'a>,
+impl Operator {
+    pub fn from_token(token: &Token) -> Option<Operator> {
+        match token.kind {
+            TokenKind::Minus => Some(Operator::Minus),
+            TokenKind::Plus => Some(Operator::Plus),
+            TokenKind::Slash => Some(Operator::Slash),
+            TokenKind::Star => Some(Operator::Star),
+            TokenKind::Bang => Some(Operator::Bang),
+            TokenKind::BangEqual => Some(Operator::BangEqual),
+            TokenKind::Equal => Some(Operator::Equal),
+            TokenKind::EqualEqual => Some(Operator::EqualEqual),
+            TokenKind::Greater => Some(Operator::Greater),
+            TokenKind::GreaterEqual => Some(Operator::GreaterEqual),
+            TokenKind::Less => Some(Operator::Less),
+            TokenKind::LessEqual => Some(Operator::LessEqual),
+            _ => None,
+        }
+    }
+
+    pub fn to_str(&self) -> &'static str {
+        match self {
+            Operator::Minus => "-",
+            Operator::Plus => "+",
+            Operator::Star => "*",
+            Operator::BangEqual => "!=",
+            Operator::Bang => "!",
+            Operator::EqualEqual => "==",
+            Operator::Equal => "=",
+            Operator::LessEqual => "<=",
+            Operator::Less => "<",
+            Operator::GreaterEqual => ">=",
+            Operator::Greater => ">",
+            Operator::Slash => "/",
+        }
+    }
 }
 
-struct Literal<'a> {
-    value: Token<'a>,
+pub struct Binary {
+    pub left: Expr,
+    pub operator: Operator,
+    pub right: Expr,
 }
 
-struct Unary<'a> {
-    operator: Token<'a>,
-    right: Expr<'a>,
+pub struct Grouping {
+    pub expr: Expr,
 }
 
-enum Expr<'a> {
-    Binary(Box<Binary<'a>>),
-    Grouping(Box<Grouping<'a>>),
-    Literal(Box<Literal<'a>>),
-    Unary(Box<Unary<'a>>),
+pub enum Literal {
+    Keyword(String),
+    String(String),
+    Number(f64),
+}
+
+pub struct Unary {
+    pub operator: Operator,
+    pub right: Expr,
+}
+
+impl Binary {
+    pub fn new(left: Expr, operator: Operator, right: Expr) -> Self {
+        Self {
+            left,
+            operator,
+            right,
+        }
+    }
+}
+
+impl Grouping {
+    pub fn new(expr: Expr) -> Self {
+        Self { expr }
+    }
+}
+
+impl Unary {
+    pub fn new(operator: Operator, right: Expr) -> Self {
+        Self { operator, right }
+    }
+}
+
+pub enum Expr {
+    Binary(Box<Binary>),
+    Grouping(Box<Grouping>),
+    Literal(Literal),
+    Unary(Box<Unary>),
 }

@@ -1,4 +1,31 @@
-// TODO: TokenKind is 24 bytes...
+#[derive(Debug)]
+pub enum Keyword {
+    And,
+    Class,
+    Else,
+    False,
+    Fun,
+    For,
+    If,
+    Nil,
+    Or,
+    Print,
+    Return,
+    Super,
+    This,
+    True,
+    Var,
+    While,
+}
+
+#[derive(Debug)]
+pub enum Literal {
+    Keyword(Keyword),
+    Identifier(String),
+    String(String),
+    Number(f64),
+}
+
 #[derive(Debug)]
 pub enum TokenKind {
     // Single-character tokens.
@@ -24,35 +51,15 @@ pub enum TokenKind {
     Less,
     LessEqual,
 
-    // Literals.
-    Identifier,
-    String(String),
-    Number(f64),
-
-    // Keywords.
-    And,
-    Class,
-    Else,
-    False,
-    Fun,
-    For,
-    If,
-    Nil,
-    Or,
-    Print,
-    Return,
-    Super,
-    This,
-    True,
-    Var,
-    While,
+    Literal(Literal),
 
     Eof,
 }
 
+// TODO: Reduce size
 #[derive(Debug)]
-pub struct Token<'a> {
+pub struct Token<'src> {
     pub kind: TokenKind,
-    pub lexeme: &'a str,
+    pub lexeme: &'src str,
     pub line: usize,
 }
