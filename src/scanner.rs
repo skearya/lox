@@ -90,18 +90,6 @@ impl<'src> Scanner<'src> {
         Some(token)
     }
 
-    pub fn tokens(&mut self) -> Vec<Token<'src>> {
-        let mut tokens = vec![];
-
-        while self.current < self.source.len() {
-            if let Some(token) = self.token() {
-                tokens.push(token);
-            }
-        }
-
-        tokens
-    }
-
     fn string(&mut self) -> Token<'src> {
         loop {
             match self.next() {
@@ -152,7 +140,7 @@ impl<'src> Scanner<'src> {
         }
 
         let lexeme = &self.source[self.start..self.current];
-        let literal = Scanner::to_keyword(lexeme)
+        let literal = Keyword::from_str(lexeme)
             .map(Literal::Keyword)
             .unwrap_or_else(|| Literal::Identifier(lexeme.to_owned()));
 
@@ -162,26 +150,20 @@ impl<'src> Scanner<'src> {
             line: self.line,
         }
     }
+}
 
-    fn to_keyword(text: &str) -> Option<Keyword> {
-        match text {
-            "and" => Some(Keyword::And),
-            "class" => Some(Keyword::Class),
-            "else" => Some(Keyword::Else),
-            "false" => Some(Keyword::False),
-            "for" => Some(Keyword::For),
-            "fun" => Some(Keyword::Fun),
-            "if" => Some(Keyword::If),
-            "nil" => Some(Keyword::Nil),
-            "or" => Some(Keyword::Or),
-            "print" => Some(Keyword::Print),
-            "return" => Some(Keyword::Return),
-            "super" => Some(Keyword::Super),
-            "this" => Some(Keyword::This),
-            "true" => Some(Keyword::True),
-            "var" => Some(Keyword::Var),
-            "while" => Some(Keyword::While),
-            _ => None,
+impl<'src> Iterator for Scanner<'src> {
+    type Item = Token<'src>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if self.current < self.source.len() {
+                if let Some(token) = self.token() {
+                    break Some(token);
+                }
+            } else {
+                break None;
+            }
         }
     }
 }

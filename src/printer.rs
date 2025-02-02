@@ -1,5 +1,6 @@
 use crate::{
-    expr::{Binary, Expr, Grouping, Literal, Unary},
+    expr::{Binary, Expr, Grouping, Unary},
+    token::Literal,
     visitor::ExprVisitor,
 };
 
@@ -22,7 +23,8 @@ impl ExprVisitor for Printer {
 
     fn visit_literal(&mut self, literal: &Literal) -> Self::Output {
         match literal {
-            Literal::Keyword(data) | Literal::String(data) => data.clone(),
+            Literal::Keyword(data) => data.to_str().to_owned(),
+            Literal::Identifier(data) | Literal::String(data) => data.clone(),
             Literal::Number(data) => data.to_string(),
         }
     }

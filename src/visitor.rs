@@ -1,4 +1,7 @@
-use crate::expr::{Binary, Expr, Grouping, Literal, Unary};
+use crate::{
+    expr::{Binary, Expr, Grouping, Unary},
+    token::Literal,
+};
 
 pub trait ExprVisitor: Sized {
     type Output;

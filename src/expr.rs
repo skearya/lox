@@ -1,5 +1,6 @@
-use crate::token::{Token, TokenKind};
+use crate::token::{Literal, Token, TokenKind};
 
+#[derive(Debug)]
 pub enum Operator {
     Minus,
     Plus,
@@ -52,22 +53,19 @@ impl Operator {
     }
 }
 
+#[derive(Debug)]
 pub struct Binary {
     pub left: Expr,
     pub operator: Operator,
     pub right: Expr,
 }
 
+#[derive(Debug)]
 pub struct Grouping {
     pub expr: Expr,
 }
 
-pub enum Literal {
-    Keyword(String),
-    String(String),
-    Number(f64),
-}
-
+#[derive(Debug)]
 pub struct Unary {
     pub operator: Operator,
     pub right: Expr,
@@ -95,6 +93,7 @@ impl Unary {
     }
 }
 
+#[derive(Debug)]
 pub enum Expr {
     Binary(Box<Binary>),
     Grouping(Box<Grouping>),
