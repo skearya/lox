@@ -37,6 +37,7 @@ impl<'src> Parser<'src> {
     fn equality(&mut self) -> Option<Expr> {
         let mut expr = self.comparison()?;
 
+        // TODO: Have enum subsets or figure out something so the interpreter doesnt have to match on every operator in every method
         while let Some(token) =
             self.next_if(|token| matches!(token.kind, TokenKind::BangEqual | TokenKind::EqualEqual))
         {
@@ -62,7 +63,6 @@ impl<'src> Parser<'src> {
                     | TokenKind::LessEqual
             )
         }) {
-            // Token guaranteed to be operator from earlier check.
             let operator = Operator::from_token(&token).unwrap();
             let right = self.term()?;
 
@@ -116,12 +116,10 @@ impl<'src> Parser<'src> {
     }
 
     fn primary(&mut self) -> Option<Expr> {
-        let literal = self.next_if(|token| matches!(token.kind, TokenKind::Literal(_)));
-
         if let Some(Token {
             kind: TokenKind::Literal(literal),
             ..
-        }) = literal
+        }) = self.next_if(|token| matches!(token.kind, TokenKind::Literal(_)))
         {
             return Some(Expr::Literal(literal));
         }
@@ -145,6 +143,28 @@ impl<'src> Parser<'src> {
             Some(Expr::Grouping(Box::new(Grouping::new(expr))))
         } else {
             None
+        }
+    }
+
+    fn synchronize(&mut self) {
+        while let Some(Token { kind, .. }) = self.peek() {
+            match kind {
+                TokenKind::Semicolon => {
+                    self.next();
+                    return;
+                }
+                TokenKind::Class
+                | TokenKind::Fun
+                | TokenKind::Var
+                | TokenKind::For
+                | TokenKind::If
+                | TokenKind::While
+                | TokenKind::Print
+                | TokenKind::Return => return,
+                _ => {
+                    self.next();
+                }
+            }
         }
     }
 }

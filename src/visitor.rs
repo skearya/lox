@@ -3,8 +3,12 @@ use crate::{
     token::Literal,
 };
 
-pub trait ExprVisitor: Sized {
+pub trait Visitor: Sized {
     type Output;
+
+    fn visit(&mut self, expr: &Expr) -> Self::Output {
+        expr.accept(self)
+    }
 
     fn visit_binary(&mut self, binary: &Binary) -> Self::Output;
     fn visit_grouping(&mut self, grouping: &Grouping) -> Self::Output;
@@ -13,7 +17,7 @@ pub trait ExprVisitor: Sized {
 }
 
 impl Expr {
-    pub fn accept<V>(&self, visitor: &mut impl ExprVisitor<Output = V>) -> V {
+    pub fn accept<V>(&self, visitor: &mut impl Visitor<Output = V>) -> V {
         match self {
             Expr::Binary(binary) => visitor.visit_binary(binary),
             Expr::Grouping(grouping) => visitor.visit_grouping(grouping),

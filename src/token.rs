@@ -1,72 +1,7 @@
 #[derive(Debug, Clone)]
-pub enum Keyword {
-    And,
-    Class,
-    Else,
-    False,
-    Fun,
-    For,
-    If,
-    Nil,
-    Or,
-    Print,
-    Return,
-    Super,
-    This,
-    True,
-    Var,
-    While,
-}
-
-impl Keyword {
-    pub fn from_str(text: &str) -> Option<Keyword> {
-        match text {
-            "and" => Some(Keyword::And),
-            "class" => Some(Keyword::Class),
-            "else" => Some(Keyword::Else),
-            "false" => Some(Keyword::False),
-            "for" => Some(Keyword::For),
-            "fun" => Some(Keyword::Fun),
-            "if" => Some(Keyword::If),
-            "nil" => Some(Keyword::Nil),
-            "or" => Some(Keyword::Or),
-            "print" => Some(Keyword::Print),
-            "return" => Some(Keyword::Return),
-            "super" => Some(Keyword::Super),
-            "this" => Some(Keyword::This),
-            "true" => Some(Keyword::True),
-            "var" => Some(Keyword::Var),
-            "while" => Some(Keyword::While),
-            _ => None,
-        }
-    }
-
-    pub fn to_str(&self) -> &'static str {
-        match self {
-            Keyword::And => "and",
-            Keyword::Class => "class",
-            Keyword::Else => "else",
-            Keyword::False => "false",
-            Keyword::Fun => "fun",
-            Keyword::For => "for",
-            Keyword::If => "if",
-            Keyword::Nil => "nil",
-            Keyword::Or => "or",
-            Keyword::Print => "print",
-            Keyword::Return => "return",
-            Keyword::Super => "super",
-            Keyword::This => "this",
-            Keyword::True => "true",
-            Keyword::Var => "var",
-            Keyword::While => "while",
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
 pub enum Literal {
-    Keyword(Keyword),
-    Identifier(String),
+    Nil,
+    Bool(bool),
     String(String),
     Number(f64),
 }
@@ -95,6 +30,23 @@ pub enum TokenKind {
     GreaterEqual,
     Less,
     LessEqual,
+
+    // Keywords.
+    And,
+    Class,
+    Else,
+    Fun,
+    For,
+    If,
+    Or,
+    Print,
+    Return,
+    Super,
+    This,
+    Var,
+    While,
+
+    Identifier,
 
     Literal(Literal),
 }

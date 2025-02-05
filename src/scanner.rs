@@ -1,4 +1,4 @@
-use crate::token::{Keyword, Literal, Token, TokenKind};
+use crate::token::{Literal, Token, TokenKind};
 
 #[derive(Debug)]
 pub struct Scanner<'src> {
@@ -140,14 +140,34 @@ impl<'src> Scanner<'src> {
         }
 
         let lexeme = &self.source[self.start..self.current];
-        let literal = Keyword::from_str(lexeme)
-            .map(Literal::Keyword)
-            .unwrap_or_else(|| Literal::Identifier(lexeme.to_owned()));
+        let kind = Scanner::keyword(lexeme).unwrap_or(TokenKind::Identifier);
 
         Token {
-            kind: TokenKind::Literal(literal),
+            kind,
             lexeme,
             line: self.line,
+        }
+    }
+
+    fn keyword(str: &str) -> Option<TokenKind> {
+        match str {
+            "and" => Some(TokenKind::And),
+            "class" => Some(TokenKind::Class),
+            "else" => Some(TokenKind::Else),
+            "for" => Some(TokenKind::For),
+            "fun" => Some(TokenKind::Fun),
+            "if" => Some(TokenKind::If),
+            "or" => Some(TokenKind::Or),
+            "print" => Some(TokenKind::Print),
+            "return" => Some(TokenKind::Return),
+            "super" => Some(TokenKind::Super),
+            "this" => Some(TokenKind::This),
+            "var" => Some(TokenKind::Var),
+            "while" => Some(TokenKind::While),
+            "true" => Some(TokenKind::Literal(Literal::Bool(true))),
+            "false" => Some(TokenKind::Literal(Literal::Bool(false))),
+            "nil" => Some(TokenKind::Literal(Literal::Nil)),
+            _ => None,
         }
     }
 }
