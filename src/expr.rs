@@ -1,54 +1,49 @@
-use crate::token::{Literal, Token, TokenKind};
+use crate::token::{Literal, TokenKind};
 
 #[derive(Debug)]
-pub enum Operator {
+pub enum BinaryOp {
     Minus,
     Plus,
     Slash,
     Star,
-    Bang,
-    BangEqual,
-    Equal,
-    EqualEqual,
     Greater,
     GreaterEqual,
     Less,
     LessEqual,
+    EqualEqual,
+    BangEqual,
 }
 
-impl Operator {
-    pub fn from_token(token: &Token) -> Option<Operator> {
-        match token.kind {
-            TokenKind::Minus => Some(Operator::Minus),
-            TokenKind::Plus => Some(Operator::Plus),
-            TokenKind::Slash => Some(Operator::Slash),
-            TokenKind::Star => Some(Operator::Star),
-            TokenKind::Bang => Some(Operator::Bang),
-            TokenKind::BangEqual => Some(Operator::BangEqual),
-            TokenKind::Equal => Some(Operator::Equal),
-            TokenKind::EqualEqual => Some(Operator::EqualEqual),
-            TokenKind::Greater => Some(Operator::Greater),
-            TokenKind::GreaterEqual => Some(Operator::GreaterEqual),
-            TokenKind::Less => Some(Operator::Less),
-            TokenKind::LessEqual => Some(Operator::LessEqual),
-            _ => None,
+impl From<TokenKind> for BinaryOp {
+    fn from(value: TokenKind) -> Self {
+        match value {
+            TokenKind::Minus => BinaryOp::Minus,
+            TokenKind::Plus => BinaryOp::Plus,
+            TokenKind::Slash => BinaryOp::Slash,
+            TokenKind::Star => BinaryOp::Star,
+            TokenKind::Greater => BinaryOp::Greater,
+            TokenKind::GreaterEqual => BinaryOp::GreaterEqual,
+            TokenKind::Less => BinaryOp::Less,
+            TokenKind::LessEqual => BinaryOp::LessEqual,
+            TokenKind::EqualEqual => BinaryOp::EqualEqual,
+            TokenKind::BangEqual => BinaryOp::BangEqual,
+            _ => panic!("value should've been a binary operator"),
         }
     }
+}
 
-    pub fn to_str(&self) -> &'static str {
-        match self {
-            Operator::Minus => "-",
-            Operator::Plus => "+",
-            Operator::Star => "*",
-            Operator::BangEqual => "!=",
-            Operator::Bang => "!",
-            Operator::EqualEqual => "==",
-            Operator::Equal => "=",
-            Operator::LessEqual => "<=",
-            Operator::Less => "<",
-            Operator::GreaterEqual => ">=",
-            Operator::Greater => ">",
-            Operator::Slash => "/",
+#[derive(Debug)]
+pub enum UnaryOp {
+    Bang,
+    Minus,
+}
+
+impl From<TokenKind> for UnaryOp {
+    fn from(value: TokenKind) -> Self {
+        match value {
+            TokenKind::Bang => UnaryOp::Bang,
+            TokenKind::Minus => UnaryOp::Minus,
+            _ => panic!("value should've been a unary operator"),
         }
     }
 }
@@ -56,7 +51,7 @@ impl Operator {
 #[derive(Debug)]
 pub struct Binary {
     pub left: Expr,
-    pub operator: Operator,
+    pub operator: BinaryOp,
     pub right: Expr,
 }
 
@@ -67,12 +62,12 @@ pub struct Grouping {
 
 #[derive(Debug)]
 pub struct Unary {
-    pub operator: Operator,
+    pub operator: UnaryOp,
     pub right: Expr,
 }
 
 impl Binary {
-    pub fn new(left: Expr, operator: Operator, right: Expr) -> Self {
+    pub fn new(left: Expr, operator: BinaryOp, right: Expr) -> Self {
         Self {
             left,
             operator,
@@ -88,7 +83,7 @@ impl Grouping {
 }
 
 impl Unary {
-    pub fn new(operator: Operator, right: Expr) -> Self {
+    pub fn new(operator: UnaryOp, right: Expr) -> Self {
         Self { operator, right }
     }
 }

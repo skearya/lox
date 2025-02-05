@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 
 use crate::{
-    expr::{Binary, Expr, Grouping, Operator, Unary},
+    expr::{Binary, Expr, Grouping, Unary},
     token::{Token, TokenKind},
 };
 
@@ -23,9 +23,9 @@ impl<'src> Parser<'src> {
         self.tokens.pop_front()
     }
 
-    fn next_if(&mut self, f: impl Fn(&Token) -> bool) -> Option<Token> {
+    fn next_if(&mut self, f: impl Fn(&TokenKind) -> bool) -> Option<Token> {
         match self.peek() {
-            Some(token) if f(token) => self.next(),
+            Some(token) if f(&token.kind) => self.next(),
             _ => None,
         }
     }
@@ -37,12 +37,10 @@ impl<'src> Parser<'src> {
     fn equality(&mut self) -> Option<Expr> {
         let mut expr = self.comparison()?;
 
-        // TODO: Have enum subsets or figure out something so the interpreter doesnt have to match on every operator in every method
         while let Some(token) =
-            self.next_if(|token| matches!(token.kind, TokenKind::BangEqual | TokenKind::EqualEqual))
+            self.next_if(|kind| matches!(kind, TokenKind::BangEqual | TokenKind::EqualEqual))
         {
-            // Token guaranteed to be operator from earlier check.
-            let operator = Operator::from_token(&token).unwrap();
+            let operator = token.kind.into();
             let right = self.comparison()?;
 
             expr = Expr::Binary(Box::new(Binary::new(expr, operator, right)));
@@ -54,16 +52,16 @@ impl<'src> Parser<'src> {
     fn comparison(&mut self) -> Option<Expr> {
         let mut expr = self.term()?;
 
-        while let Some(token) = self.next_if(|token| {
+        while let Some(token) = self.next_if(|kind| {
             matches!(
-                token.kind,
+                kind,
                 TokenKind::Greater
                     | TokenKind::GreaterEqual
                     | TokenKind::Less
                     | TokenKind::LessEqual
             )
         }) {
-            let operator = Operator::from_token(&token).unwrap();
+            let operator = token.kind.into();
             let right = self.term()?;
 
             expr = Expr::Binary(Box::new(Binary::new(expr, operator, right)));
@@ -76,9 +74,9 @@ impl<'src> Parser<'src> {
         let mut expr = self.factor()?;
 
         while let Some(token) =
-            self.next_if(|token| matches!(token.kind, TokenKind::Minus | TokenKind::Plus))
+            self.next_if(|kind| matches!(kind, TokenKind::Minus | TokenKind::Plus))
         {
-            let operator = Operator::from_token(&token).unwrap();
+            let operator = token.kind.into();
             let right = self.factor()?;
 
             expr = Expr::Binary(Box::new(Binary::new(expr, operator, right)));
@@ -91,9 +89,9 @@ impl<'src> Parser<'src> {
         let mut expr = self.unary()?;
 
         while let Some(token) =
-            self.next_if(|token| matches!(token.kind, TokenKind::Slash | TokenKind::Star))
+            self.next_if(|kind| matches!(kind, TokenKind::Slash | TokenKind::Star))
         {
-            let operator = Operator::from_token(&token).unwrap();
+            let operator = token.kind.into();
             let right = self.unary()?;
 
             expr = Expr::Binary(Box::new(Binary::new(expr, operator, right)));
@@ -103,10 +101,9 @@ impl<'src> Parser<'src> {
     }
 
     fn unary(&mut self) -> Option<Expr> {
-        if let Some(token) =
-            self.next_if(|token| matches!(token.kind, TokenKind::Bang | TokenKind::Minus))
+        if let Some(token) = self.next_if(|kind| matches!(kind, TokenKind::Bang | TokenKind::Minus))
         {
-            let operator = Operator::from_token(&token).unwrap();
+            let operator = token.kind.into();
             let right = self.unary()?;
 
             Some(Expr::Unary(Box::new(Unary::new(operator, right))))
@@ -119,24 +116,21 @@ impl<'src> Parser<'src> {
         if let Some(Token {
             kind: TokenKind::Literal(literal),
             ..
-        }) = self.next_if(|token| matches!(token.kind, TokenKind::Literal(_)))
+        }) = self.next_if(|kind| matches!(kind, TokenKind::Literal(_)))
         {
             return Some(Expr::Literal(literal));
         }
 
         if self
-            .next_if(|token| matches!(token.kind, TokenKind::LeftParen))
+            .next_if(|kind| matches!(kind, TokenKind::LeftParen))
             .is_some()
         {
             let expr = self.expression()?;
 
-            if !matches!(
-                self.next(),
-                Some(Token {
-                    kind: TokenKind::RightParen,
-                    ..
-                })
-            ) {
+            if !self
+                .next()
+                .is_some_and(|token| matches!(token.kind, TokenKind::RightParen))
+            {
                 panic!("expected ')'")
             }
 

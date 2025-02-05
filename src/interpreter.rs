@@ -1,5 +1,5 @@
 use crate::{
-    expr::{Binary, Grouping, Operator, Unary},
+    expr::{Binary, BinaryOp, Grouping, Unary, UnaryOp},
     token::Literal,
     visitor::Visitor,
 };
@@ -16,7 +16,6 @@ pub enum Value {
 pub enum InterpreterError {
     OperandNotNumber,
     OperandsNotNumber,
-    UnexpectedOperator,
 }
 
 pub struct Interpreter;
@@ -49,25 +48,25 @@ impl Visitor for Interpreter {
         let right = self.visit(&binary.right)?;
 
         let value = match (left, &binary.operator, right) {
-            (left, Operator::EqualEqual, right) => {
+            (left, BinaryOp::EqualEqual, right) => {
                 Value::Bool(Interpreter::is_equal(&left, &right))
             }
-            (left, Operator::BangEqual, right) => {
+            (left, BinaryOp::BangEqual, right) => {
                 Value::Bool(!Interpreter::is_equal(&left, &right))
             }
-            (Value::String(left), Operator::Plus, Value::String(right)) => {
+            (Value::String(left), BinaryOp::Plus, Value::String(right)) => {
                 Value::String(left + &right)
             }
             (Value::Number(left), operator, Value::Number(right)) => match operator {
-                Operator::Greater => Value::Bool(left > right),
-                Operator::GreaterEqual => Value::Bool(left >= right),
-                Operator::Less => Value::Bool(left < right),
-                Operator::LessEqual => Value::Bool(left <= right),
-                Operator::Minus => Value::Number(left - right),
-                Operator::Plus => Value::Number(left + right),
-                Operator::Slash => Value::Number(left / right),
-                Operator::Star => Value::Number(left * right),
-                _ => return Err(InterpreterError::UnexpectedOperator),
+                BinaryOp::Minus => Value::Number(left - right),
+                BinaryOp::Plus => Value::Number(left + right),
+                BinaryOp::Slash => Value::Number(left / right),
+                BinaryOp::Star => Value::Number(left * right),
+                BinaryOp::Greater => Value::Bool(left > right),
+                BinaryOp::GreaterEqual => Value::Bool(left >= right),
+                BinaryOp::Less => Value::Bool(left < right),
+                BinaryOp::LessEqual => Value::Bool(left <= right),
+                BinaryOp::EqualEqual | BinaryOp::BangEqual => unreachable!(),
             },
             _ => return Err(InterpreterError::OperandsNotNumber),
         };
@@ -94,10 +93,9 @@ impl Visitor for Interpreter {
         let right = self.visit(&unary.right)?;
 
         let value = match (&unary.operator, right) {
-            (Operator::Minus, Value::Number(num)) => Value::Number(-num),
-            (Operator::Minus, _) => return Err(InterpreterError::OperandNotNumber),
-            (Operator::Bang, value) => Value::Bool(!Interpreter::is_truthy(&value)),
-            _ => return Err(InterpreterError::UnexpectedOperator),
+            (UnaryOp::Minus, Value::Number(num)) => Value::Number(-num),
+            (UnaryOp::Minus, _) => return Err(InterpreterError::OperandNotNumber),
+            (UnaryOp::Bang, value) => Value::Bool(!Interpreter::is_truthy(&value)),
         };
 
         Ok(value)

@@ -1,5 +1,5 @@
 use crate::{
-    expr::{Binary, Expr, Grouping, Unary},
+    expr::{Binary, BinaryOp, Expr, Grouping, Unary, UnaryOp},
     token::Literal,
     visitor::Visitor,
 };
@@ -28,7 +28,20 @@ impl Visitor for Printer {
     type Output = String;
 
     fn visit_binary(&mut self, binary: &Binary) -> Self::Output {
-        self.parenthesize(binary.operator.to_str(), [&binary.left, &binary.right])
+        let operator = match binary.operator {
+            BinaryOp::Minus => "-",
+            BinaryOp::Plus => "+",
+            BinaryOp::Slash => "/",
+            BinaryOp::Star => "*",
+            BinaryOp::Greater => ">",
+            BinaryOp::GreaterEqual => ">=",
+            BinaryOp::Less => "<",
+            BinaryOp::LessEqual => "<=",
+            BinaryOp::EqualEqual => "==",
+            BinaryOp::BangEqual => "!=",
+        };
+
+        self.parenthesize(operator, [&binary.left, &binary.right])
     }
 
     fn visit_grouping(&mut self, grouping: &Grouping) -> Self::Output {
@@ -45,6 +58,11 @@ impl Visitor for Printer {
     }
 
     fn visit_unary(&mut self, unary: &Unary) -> Self::Output {
-        self.parenthesize(unary.operator.to_str(), [&unary.right])
+        let operator = match unary.operator {
+            UnaryOp::Bang => "!",
+            UnaryOp::Minus => "-",
+        };
+
+        self.parenthesize(operator, [&unary.right])
     }
 }
