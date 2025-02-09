@@ -1,7 +1,7 @@
 use crate::{
-    expr::{Binary, BinaryOp, Grouping, Unary, UnaryOp},
+    ast::{Binary, BinaryOp, Expr, Grouping, Stmt, Unary, UnaryOp},
     token::Literal,
-    visitor::Visitor,
+    visitor::{ExprVisitor, StmtVisitor},
 };
 
 #[derive(Debug)]
@@ -18,9 +18,19 @@ pub enum InterpreterError {
     OperandsNotNumber,
 }
 
+type Result<T> = core::result::Result<T, InterpreterError>;
+
 pub struct Interpreter;
 
 impl Interpreter {
+    pub fn interpret(&mut self, stmts: &[Stmt]) {
+        for stmt in stmts {
+            if let Err(err) = StmtVisitor::visit(self, stmt) {
+                eprintln!("runtime error: {err:#?}");
+            }
+        }
+    }
+
     fn is_truthy(value: &Value) -> bool {
         match value {
             Value::Nil => false,
@@ -40,12 +50,32 @@ impl Interpreter {
     }
 }
 
-impl Visitor for Interpreter {
-    type Output = Result<Value, InterpreterError>;
+impl StmtVisitor for Interpreter {
+    type Output = Result<()>;
+
+    fn visit_expr_stmt(&mut self, expr: &Expr) -> Self::Output {
+        ExprVisitor::visit(self, expr)?;
+
+        Ok(())
+    }
+
+    fn visit_print_stmt(&mut self, expr: &Expr) -> Self::Output {
+        dbg!(ExprVisitor::visit(self, expr))?;
+
+        Ok(())
+    }
+    
+    fn visit_var_stmt(&mut self, var: &crate::ast::Var) -> Self::Output {
+        todo!()
+    }
+}
+
+impl ExprVisitor for Interpreter {
+    type Output = Result<Value>;
 
     fn visit_binary(&mut self, binary: &Binary) -> Self::Output {
-        let left = self.visit(&binary.left)?;
-        let right = self.visit(&binary.right)?;
+        let left = ExprVisitor::visit(self, &binary.left)?;
+        let right = ExprVisitor::visit(self, &binary.right)?;
 
         let value = match (left, &binary.operator, right) {
             (left, BinaryOp::EqualEqual, right) => {
@@ -75,7 +105,7 @@ impl Visitor for Interpreter {
     }
 
     fn visit_grouping(&mut self, grouping: &Grouping) -> Self::Output {
-        self.visit(&grouping.expr)
+        ExprVisitor::visit(self, &grouping.expr)
     }
 
     fn visit_literal(&mut self, literal: &Literal) -> Self::Output {
@@ -90,7 +120,7 @@ impl Visitor for Interpreter {
     }
 
     fn visit_unary(&mut self, unary: &Unary) -> Self::Output {
-        let right = self.visit(&unary.right)?;
+        let right = ExprVisitor::visit(self, &unary.right)?;
 
         let value = match (&unary.operator, right) {
             (UnaryOp::Minus, Value::Number(num)) => Value::Number(-num),
@@ -99,5 +129,9 @@ impl Visitor for Interpreter {
         };
 
         Ok(value)
+    }
+    
+    fn visit_var(&mut self, var: &str) -> Self::Output {
+        todo!()
     }
 }

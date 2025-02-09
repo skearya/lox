@@ -1,4 +1,4 @@
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Literal {
     Nil,
     Bool(bool),
@@ -6,7 +6,7 @@ pub enum Literal {
     Number(f64),
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum TokenKind {
     // Single-character tokens.
     LeftParen,

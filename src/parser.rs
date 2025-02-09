@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 
 use crate::{
-    expr::{Binary, Expr, Grouping, Unary},
+    ast::{Binary, Expr, Grouping, Stmt, Unary, Var},
     token::{Token, TokenKind},
 };
 
@@ -9,6 +9,18 @@ use crate::{
 pub struct Parser<'src> {
     tokens: VecDeque<Token<'src>>,
 }
+
+#[derive(Debug)]
+pub enum ParseError {
+    ExpectVariableName,
+    ExpectSemiAfterVarDecl,
+    ExpectSemiAfterValue,
+    ExpectSemiAfterExpression,
+    ExpectParenAfterExpression,
+    ExpectExpression,
+}
+
+type Result<T> = core::result::Result<T, ParseError>;
 
 impl<'src> Parser<'src> {
     pub fn new(tokens: VecDeque<Token<'src>>) -> Self {
@@ -30,11 +42,69 @@ impl<'src> Parser<'src> {
         }
     }
 
-    pub fn expression(&mut self) -> Option<Expr> {
+    fn consume(&mut self, expected: TokenKind, error: ParseError) -> Result<Token> {
+        match self.next_if(|kind| *kind == expected) {
+            Some(token) => Ok(token),
+            None => Err(error),
+        }
+    }
+
+    fn declaration(&mut self) -> Result<Stmt> {
+        let stmt = match self.next_if(|kind| matches!(kind, TokenKind::Var)) {
+            Some(_) => self.var_declaration(),
+            None => self.statement(),
+        };
+
+        if stmt.is_err() {
+            self.synchronize();
+        }
+
+        stmt
+    }
+
+    fn var_declaration(&mut self) -> Result<Stmt> {
+        let token = self.consume(TokenKind::Identifier, ParseError::ExpectVariableName)?;
+
+        let name = token.lexeme.to_owned();
+
+        let initalizer = match self.next_if(|kind| matches!(kind, TokenKind::Equal)) {
+            Some(_) => Some(self.expression()?),
+            None => None,
+        };
+
+        self.consume(TokenKind::Semicolon, ParseError::ExpectSemiAfterVarDecl)?;
+
+        Ok(Stmt::Var(Var::new(name, initalizer)))
+    }
+
+    fn statement(&mut self) -> Result<Stmt> {
+        match self.next_if(|kind| matches!(kind, TokenKind::Print)) {
+            Some(_) => self.print_statement(),
+            None => self.expression_statement(),
+        }
+    }
+
+    fn print_statement(&mut self) -> Result<Stmt> {
+        let expr = self.expression()?;
+
+        self.consume(TokenKind::Semicolon, ParseError::ExpectSemiAfterValue)?;
+
+        Ok(Stmt::Print(expr))
+    }
+
+    fn expression_statement(&mut self) -> Result<Stmt> {
+        let expr = self.expression()?;
+
+        self.consume(TokenKind::Semicolon, ParseError::ExpectSemiAfterExpression)?;
+
+        Ok(Stmt::Expr(expr))
+    }
+
+    fn expression(&mut self) -> Result<Expr> {
         self.equality()
     }
 
-    fn equality(&mut self) -> Option<Expr> {
+    fn equality(&mut self) -> Result<Expr> {
         let mut expr = self.comparison()?;
 
         while let Some(token) =
@@ -46,10 +116,10 @@ impl<'src> Parser<'src> {
             expr = Expr::Binary(Box::new(Binary::new(expr, operator, right)));
         }
 
-        Some(expr)
+        Ok(expr)
     }
 
-    fn comparison(&mut self) -> Option<Expr> {
+    fn comparison(&mut self) -> Result<Expr> {
         let mut expr = self.term()?;
 
         while let Some(token) = self.next_if(|kind| {
@@ -67,10 +137,10 @@ impl<'src> Parser<'src> {
             expr = Expr::Binary(Box::new(Binary::new(expr, operator, right)));
         }
 
-        Some(expr)
+        Ok(expr)
     }
 
-    fn term(&mut self) -> Option<Expr> {
+    fn term(&mut self) -> Result<Expr> {
         let mut expr = self.factor()?;
 
         while let Some(token) =
@@ -82,10 +152,10 @@ impl<'src> Parser<'src> {
             expr = Expr::Binary(Box::new(Binary::new(expr, operator, right)));
         }
 
-        Some(expr)
+        Ok(expr)
     }
 
-    fn factor(&mut self) -> Option<Expr> {
+    fn factor(&mut self) -> Result<Expr> {
         let mut expr = self.unary()?;
 
         while let Some(token) =
@@ -97,52 +167,49 @@ impl<'src> Parser<'src> {
             expr = Expr::Binary(Box::new(Binary::new(expr, operator, right)));
         }
 
-        Some(expr)
+        Ok(expr)
     }
 
-    fn unary(&mut self) -> Option<Expr> {
+    fn unary(&mut self) -> Result<Expr> {
         if let Some(token) = self.next_if(|kind| matches!(kind, TokenKind::Bang | TokenKind::Minus))
         {
             let operator = token.kind.into();
             let right = self.unary()?;
 
-            Some(Expr::Unary(Box::new(Unary::new(operator, right))))
+            Ok(Expr::Unary(Box::new(Unary::new(operator, right))))
         } else {
             self.primary()
         }
     }
 
-    fn primary(&mut self) -> Option<Expr> {
-        if let Some(Token {
-            kind: TokenKind::Literal(literal),
-            ..
-        }) = self.next_if(|kind| matches!(kind, TokenKind::Literal(_)))
-        {
-            return Some(Expr::Literal(literal));
+    fn primary(&mut self) -> Result<Expr> {
+        if let Some(token) = self.next_if(|kind| matches!(kind, TokenKind::Literal(_))) {
+            let TokenKind::Literal(literal) = token.kind else {
+                unreachable!()
+            };
+
+            return Ok(Expr::Literal(literal));
         }
 
-        if self
-            .next_if(|kind| matches!(kind, TokenKind::LeftParen))
-            .is_some()
-        {
-            let expr = self.expression()?;
-
-            if !self
-                .next()
-                .is_some_and(|token| matches!(token.kind, TokenKind::RightParen))
-            {
-                panic!("expected ')'")
-            }
-
-            Some(Expr::Grouping(Box::new(Grouping::new(expr))))
-        } else {
-            None
+        if let Some(token) = self.next_if(|kind| matches!(kind, TokenKind::Identifier)) {
+            return Ok(Expr::Variable(token.lexeme.to_owned()));
         }
+
+        self.consume(TokenKind::LeftParen, ParseError::ExpectExpression)?;
+
+        let expr = self.expression()?;
+
+        self.consume(
+            TokenKind::RightParen,
+            ParseError::ExpectParenAfterExpression,
+        )?;
+
+        Ok(Expr::Grouping(Box::new(Grouping::new(expr))))
     }
 
     fn synchronize(&mut self) {
-        while let Some(Token { kind, .. }) = self.peek() {
-            match kind {
+        while let Some(token) = self.peek() {
+            match token.kind {
                 TokenKind::Semicolon => {
                     self.next();
                     return;
@@ -159,6 +226,18 @@ impl<'src> Parser<'src> {
                     self.next();
                 }
             }
+        }
+    }
+}
+
+impl<'a> Iterator for Parser<'a> {
+    type Item = Result<Stmt>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.declaration() {
+            Ok(stmt) => Some(Ok(stmt)),
+            Err(ParseError::ExpectExpression) => None,
+            Err(err) => Some(Err(err)),
         }
     }
 }

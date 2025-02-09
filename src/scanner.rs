@@ -8,6 +8,8 @@ pub struct Scanner<'src> {
     line: usize,
 }
 
+// TODO: don't panic on error
+
 impl<'src> Scanner<'src> {
     pub fn new(source: &'src str) -> Self {
         Self {

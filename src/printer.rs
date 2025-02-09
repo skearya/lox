@@ -1,7 +1,7 @@
 use crate::{
-    expr::{Binary, BinaryOp, Expr, Grouping, Unary, UnaryOp},
+    ast::{Binary, BinaryOp, Expr, Grouping, Unary, UnaryOp},
     token::Literal,
-    visitor::Visitor,
+    visitor::ExprVisitor,
 };
 
 pub struct Printer;
@@ -24,7 +24,7 @@ impl Printer {
     }
 }
 
-impl Visitor for Printer {
+impl ExprVisitor for Printer {
     type Output = String;
 
     fn visit_binary(&mut self, binary: &Binary) -> Self::Output {
@@ -64,5 +64,9 @@ impl Visitor for Printer {
         };
 
         self.parenthesize(operator, [&unary.right])
+    }
+
+    fn visit_var(&mut self, var: &str) -> Self::Output {
+        var.to_owned()
     }
 }

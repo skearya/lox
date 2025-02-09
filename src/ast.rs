@@ -94,4 +94,23 @@ pub enum Expr {
     Grouping(Box<Grouping>),
     Literal(Literal),
     Unary(Box<Unary>),
+    Variable(String),
+}
+
+#[derive(Debug)]
+pub struct Var {
+    name: String,
+    initializer: Option<Expr>,
+}
+
+impl Var {
+    pub fn new(name: String, initializer: Option<Expr>) -> Self {
+        Self { name, initializer }
+    }
+}
+
+pub enum Stmt {
+    Expr(Expr),
+    Print(Expr),
+    Var(Var),
 }
