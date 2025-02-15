@@ -25,16 +25,14 @@ fn main() {
     let stmts: Result<Vec<Stmt>, ParseError> = parser.into_iter().collect();
 
     match stmts {
-        Ok(stmts) => {
-            let mut interpreter = Interpreter;
-            interpreter.interpret(&stmts);
-        }
+        Ok(stmts) => Interpreter::new().interpret(&stmts),
         Err(err) => eprintln!("parse error: {err:#?}"),
     }
 
-    loop {
-        let mut line = String::new();
+    let mut line = String::new();
+    let mut interpreter: Interpreter = Interpreter::new();
 
+    loop {
         print!("> ");
         io::stdout().flush().expect("failed to flush stdout");
 
@@ -49,11 +47,10 @@ fn main() {
         let stmts: Result<Vec<Stmt>, ParseError> = parser.into_iter().collect();
 
         match stmts {
-            Ok(stmts) => {
-                let mut interpreter = Interpreter;
-                interpreter.interpret(&stmts);
-            }
+            Ok(stmts) => interpreter.interpret(&stmts),
             Err(err) => eprintln!("parse error: {err:#?}"),
         }
+
+        line.clear();
     }
 }

@@ -49,6 +49,12 @@ impl From<TokenKind> for UnaryOp {
 }
 
 #[derive(Debug)]
+pub struct Assign {
+    pub name: String,
+    pub value: Expr,
+}
+
+#[derive(Debug)]
 pub struct Binary {
     pub left: Expr,
     pub operator: BinaryOp,
@@ -64,6 +70,12 @@ pub struct Grouping {
 pub struct Unary {
     pub operator: UnaryOp,
     pub right: Expr,
+}
+
+impl Assign {
+    pub fn new(name: String, value: Expr) -> Self {
+        Self { name, value }
+    }
 }
 
 impl Binary {
@@ -90,6 +102,7 @@ impl Unary {
 
 #[derive(Debug)]
 pub enum Expr {
+    Assign(Box<Assign>),
     Binary(Box<Binary>),
     Grouping(Box<Grouping>),
     Literal(Literal),
@@ -99,8 +112,8 @@ pub enum Expr {
 
 #[derive(Debug)]
 pub struct Var {
-    name: String,
-    initializer: Option<Expr>,
+    pub name: String,
+    pub initializer: Option<Expr>,
 }
 
 impl Var {
@@ -110,6 +123,7 @@ impl Var {
 }
 
 pub enum Stmt {
+    Block(Vec<Stmt>),
     Expr(Expr),
     Print(Expr),
     Var(Var),

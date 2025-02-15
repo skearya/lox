@@ -1,5 +1,5 @@
 use crate::{
-    ast::{Binary, BinaryOp, Expr, Grouping, Unary, UnaryOp},
+    ast::{Assign, Binary, BinaryOp, Expr, Grouping, Unary, UnaryOp},
     token::Literal,
     visitor::ExprVisitor,
 };
@@ -68,5 +68,9 @@ impl ExprVisitor for Printer {
 
     fn visit_var(&mut self, var: &str) -> Self::Output {
         var.to_owned()
+    }
+
+    fn visit_assign(&mut self, assign: &Assign) -> Self::Output {
+        format!("{} = {:#?}", assign.name, assign.value)
     }
 }

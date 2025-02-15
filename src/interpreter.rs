@@ -1,10 +1,12 @@
+use std::{collections::HashMap, mem};
+
 use crate::{
-    ast::{Binary, BinaryOp, Expr, Grouping, Stmt, Unary, UnaryOp},
+    ast::{Assign, Binary, BinaryOp, Expr, Grouping, Stmt, Unary, UnaryOp, Var},
     token::Literal,
     visitor::{ExprVisitor, StmtVisitor},
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Value {
     Nil,
     Bool(bool),
@@ -16,13 +18,74 @@ pub enum Value {
 pub enum InterpreterError {
     OperandNotNumber,
     OperandsNotNumber,
+    UndefinedVariable,
 }
 
 type Result<T> = core::result::Result<T, InterpreterError>;
 
-pub struct Interpreter;
+pub struct Interpreter {
+    environment: Environment,
+}
+
+#[derive(Debug, Clone)]
+struct Environment {
+    enclosing: Option<Box<Environment>>,
+    values: HashMap<String, Value>,
+}
+
+impl Environment {
+    fn new() -> Self {
+        Self {
+            enclosing: None,
+            values: HashMap::new(),
+        }
+    }
+
+    fn enclosing(enclosing: Box<Environment>) -> Self {
+        Self {
+            enclosing: Some(enclosing),
+            values: HashMap::new(),
+        }
+    }
+
+    fn get(&mut self, name: &str) -> Result<Value> {
+        if let Some(value) = self.values.get(name).cloned() {
+            Ok(value)
+        } else {
+            let Some(enclosing) = self.enclosing.as_mut() else {
+                return Err(InterpreterError::UndefinedVariable);
+            };
+
+            enclosing.get(name)
+        }
+    }
+
+    fn define(&mut self, name: String, value: Value) {
+        self.values.insert(name, value);
+    }
+
+    fn assign(&mut self, name: String, value: Value) -> Result<()> {
+        if self.values.contains_key(&name) {
+            self.values.insert(name, value);
+
+            Ok(())
+        } else {
+            let Some(enclosing) = self.enclosing.as_mut() else {
+                return Err(InterpreterError::UndefinedVariable);
+            };
+
+            enclosing.assign(name, value)
+        }
+    }
+}
 
 impl Interpreter {
+    pub fn new() -> Self {
+        Self {
+            environment: Environment::new(),
+        }
+    }
+
     pub fn interpret(&mut self, stmts: &[Stmt]) {
         for stmt in stmts {
             if let Err(err) = StmtVisitor::visit(self, stmt) {
@@ -53,6 +116,23 @@ impl Interpreter {
 impl StmtVisitor for Interpreter {
     type Output = Result<()>;
 
+    fn visit_block_stmt(&mut self, block: &[Stmt]) -> Self::Output {
+        let new = Environment::enclosing(Box::new(self.environment.clone()));
+        let prev = mem::replace(&mut self.environment, new);
+
+        for stmt in block {
+            if let Err(err) = StmtVisitor::visit(self, stmt) {
+                self.environment = prev;
+
+                return Err(err)?;
+            }
+        }
+
+        self.environment = prev;
+
+        Ok(())
+    }
+
     fn visit_expr_stmt(&mut self, expr: &Expr) -> Self::Output {
         ExprVisitor::visit(self, expr)?;
 
@@ -60,13 +140,20 @@ impl StmtVisitor for Interpreter {
     }
 
     fn visit_print_stmt(&mut self, expr: &Expr) -> Self::Output {
-        dbg!(ExprVisitor::visit(self, expr))?;
+        dbg!(ExprVisitor::visit(self, expr)?);
 
         Ok(())
     }
-    
-    fn visit_var_stmt(&mut self, var: &crate::ast::Var) -> Self::Output {
-        todo!()
+
+    fn visit_var_stmt(&mut self, var: &Var) -> Self::Output {
+        let value = match &var.initializer {
+            Some(initializer) => ExprVisitor::visit(self, initializer)?,
+            None => Value::Nil,
+        };
+
+        self.environment.define(var.name.clone(), value);
+
+        Ok(())
     }
 }
 
@@ -130,8 +217,17 @@ impl ExprVisitor for Interpreter {
 
         Ok(value)
     }
-    
+
     fn visit_var(&mut self, var: &str) -> Self::Output {
-        todo!()
+        self.environment.get(var)
+    }
+
+    fn visit_assign(&mut self, assign: &Assign) -> Self::Output {
+        let value = ExprVisitor::visit(self, &assign.value)?;
+
+        self.environment
+            .assign(assign.name.clone(), value.clone())?;
+
+        Ok(value)
     }
 }

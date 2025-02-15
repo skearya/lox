@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 
 use crate::{
-    ast::{Binary, Expr, Grouping, Stmt, Unary, Var},
+    ast::{Assign, Binary, Expr, Grouping, Stmt, Unary, Var},
     token::{Token, TokenKind},
 };
 
@@ -18,6 +18,8 @@ pub enum ParseError {
     ExpectSemiAfterExpression,
     ExpectParenAfterExpression,
     ExpectExpression,
+    ExpectRightBrace,
+    InvalidAssignmentTarget,
 }
 
 type Result<T> = core::result::Result<T, ParseError>;
@@ -27,8 +29,8 @@ impl<'src> Parser<'src> {
         Self { tokens }
     }
 
-    fn peek(&self) -> Option<&Token> {
-        self.tokens.front()
+    fn peek(&self) -> Option<&TokenKind> {
+        self.tokens.front().map(|token| &token.kind)
     }
 
     fn next(&mut self) -> Option<Token> {
@@ -37,7 +39,7 @@ impl<'src> Parser<'src> {
 
     fn next_if(&mut self, f: impl Fn(&TokenKind) -> bool) -> Option<Token> {
         match self.peek() {
-            Some(token) if f(&token.kind) => self.next(),
+            Some(kind) if f(kind) => self.next(),
             _ => None,
         }
     }
@@ -78,10 +80,34 @@ impl<'src> Parser<'src> {
     }
 
     fn statement(&mut self) -> Result<Stmt> {
-        match self.next_if(|kind| matches!(kind, TokenKind::Print)) {
-            Some(_) => self.print_statement(),
+        match self
+            .next_if(|kind| matches!(kind, TokenKind::Print | TokenKind::LeftBrace))
+            .map(|token| token.kind)
+        {
+            Some(TokenKind::Print) => self.print_statement(),
+            Some(TokenKind::LeftBrace) => self.block(),
             None => self.expression_statement(),
+            _ => unreachable!(),
         }
+    }
+
+    fn statements(&mut self) -> Result<Vec<Stmt>> {
+        let mut statements = vec![];
+
+        while self
+            .peek()
+            .is_some_and(|kind| !matches!(kind, TokenKind::RightBrace))
+        {
+            statements.push(self.declaration()?);
+        }
+
+        self.consume(TokenKind::RightBrace, ParseError::ExpectRightBrace)?;
+
+        Ok(statements)
+    }
+
+    fn block(&mut self) -> Result<Stmt> {
+        Ok(Stmt::Block(self.statements()?))
     }
 
     fn print_statement(&mut self) -> Result<Stmt> {
@@ -101,7 +127,26 @@ impl<'src> Parser<'src> {
     }
 
     fn expression(&mut self) -> Result<Expr> {
-        self.equality()
+        self.assignment()
+    }
+
+    fn assignment(&mut self) -> Result<Expr> {
+        let expr = self.equality()?;
+
+        if self
+            .next_if(|kind| matches!(kind, TokenKind::Equal))
+            .is_some()
+        {
+            let value = self.assignment()?;
+
+            if let Expr::Variable(name) = expr {
+                Ok(Expr::Assign(Box::new(Assign::new(name, value))))
+            } else {
+                Err(ParseError::InvalidAssignmentTarget)
+            }
+        } else {
+            Ok(expr)
+        }
     }
 
     fn equality(&mut self) -> Result<Expr> {
@@ -208,8 +253,8 @@ impl<'src> Parser<'src> {
     }
 
     fn synchronize(&mut self) {
-        while let Some(token) = self.peek() {
-            match token.kind {
+        while let Some(kind) = self.peek() {
+            match kind {
                 TokenKind::Semicolon => {
                     self.next();
                     return;

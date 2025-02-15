@@ -1,5 +1,5 @@
 use crate::{
-    ast::{Binary, Expr, Grouping, Stmt, Unary, Var},
+    ast::{Assign, Binary, Expr, Grouping, Stmt, Unary, Var},
     token::Literal,
 };
 
@@ -10,6 +10,7 @@ pub trait StmtVisitor: Sized {
         stmt.accept(self)
     }
 
+    fn visit_block_stmt(&mut self, block: &[Stmt]) -> Self::Output;
     fn visit_expr_stmt(&mut self, expr: &Expr) -> Self::Output;
     fn visit_print_stmt(&mut self, expr: &Expr) -> Self::Output;
     fn visit_var_stmt(&mut self, var: &Var) -> Self::Output;
@@ -18,6 +19,7 @@ pub trait StmtVisitor: Sized {
 impl Stmt {
     pub fn accept<V>(&self, visitor: &mut impl StmtVisitor<Output = V>) -> V {
         match self {
+            Stmt::Block(block) => visitor.visit_block_stmt(block),
             Stmt::Expr(expr) => visitor.visit_expr_stmt(expr),
             Stmt::Print(expr) => visitor.visit_print_stmt(expr),
             Stmt::Var(var) => visitor.visit_var_stmt(var),
@@ -37,6 +39,7 @@ pub trait ExprVisitor: Sized {
     fn visit_literal(&mut self, literal: &Literal) -> Self::Output;
     fn visit_unary(&mut self, unary: &Unary) -> Self::Output;
     fn visit_var(&mut self, var: &str) -> Self::Output;
+    fn visit_assign(&mut self, assign: &Assign) -> Self::Output;
 }
 
 impl Expr {
@@ -47,6 +50,7 @@ impl Expr {
             Expr::Literal(literal) => visitor.visit_literal(literal),
             Expr::Unary(unary) => visitor.visit_unary(unary),
             Expr::Variable(var) => visitor.visit_var(var),
+            Expr::Assign(assign) => visitor.visit_assign(assign),
         }
     }
 }
