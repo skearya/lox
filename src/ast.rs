@@ -49,6 +49,22 @@ impl From<TokenKind> for UnaryOp {
 }
 
 #[derive(Debug)]
+pub enum LogicalOp {
+    Or,
+    And,
+}
+
+impl From<TokenKind> for LogicalOp {
+    fn from(value: TokenKind) -> Self {
+        match value {
+            TokenKind::Or => LogicalOp::Or,
+            TokenKind::And => LogicalOp::And,
+            _ => panic!("value should've been a logial operator"),
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct Assign {
     pub name: String,
     pub value: Expr,
@@ -69,6 +85,13 @@ pub struct Grouping {
 #[derive(Debug)]
 pub struct Unary {
     pub operator: UnaryOp,
+    pub right: Expr,
+}
+
+#[derive(Debug)]
+pub struct Logical {
+    pub left: Expr,
+    pub operator: LogicalOp,
     pub right: Expr,
 }
 
@@ -100,6 +123,16 @@ impl Unary {
     }
 }
 
+impl Logical {
+    pub fn new(left: Expr, operator: LogicalOp, right: Expr) -> Self {
+        Self {
+            left,
+            operator,
+            right,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum Expr {
     Assign(Box<Assign>),
@@ -107,6 +140,7 @@ pub enum Expr {
     Grouping(Box<Grouping>),
     Literal(Literal),
     Unary(Box<Unary>),
+    Logical(Box<Logical>),
     Variable(String),
 }
 
@@ -122,9 +156,28 @@ impl Var {
     }
 }
 
+#[derive(Debug)]
+pub struct If {
+    pub condition: Expr,
+    pub then_stmt: Stmt,
+    pub else_stmt: Option<Stmt>,
+}
+
+impl If {
+    pub fn new(condition: Expr, then_stmt: Stmt, else_stmt: Option<Stmt>) -> Self {
+        Self {
+            condition,
+            then_stmt,
+            else_stmt,
+        }
+    }
+}
+
+#[derive(Debug)]
 pub enum Stmt {
-    Block(Vec<Stmt>),
     Expr(Expr),
-    Print(Expr),
     Var(Var),
+    Print(Expr),
+    If(Box<If>),
+    Block(Vec<Stmt>),
 }

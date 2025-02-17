@@ -1,5 +1,5 @@
 use crate::{
-    ast::{Assign, Binary, BinaryOp, Expr, Grouping, Unary, UnaryOp},
+    ast::{Assign, Binary, BinaryOp, Expr, Grouping, Logical, LogicalOp, Unary, UnaryOp},
     token::Literal,
     visitor::ExprVisitor,
 };
@@ -44,6 +44,10 @@ impl ExprVisitor for Printer {
         self.parenthesize(operator, [&binary.left, &binary.right])
     }
 
+    fn visit_assign(&mut self, assign: &Assign) -> Self::Output {
+        format!("{} = {:#?}", assign.name, assign.value)
+    }
+
     fn visit_grouping(&mut self, grouping: &Grouping) -> Self::Output {
         self.parenthesize("group", [&grouping.expr])
     }
@@ -66,11 +70,16 @@ impl ExprVisitor for Printer {
         self.parenthesize(operator, [&unary.right])
     }
 
-    fn visit_var(&mut self, var: &str) -> Self::Output {
-        var.to_owned()
+    fn visit_logical(&mut self, logical: &Logical) -> Self::Output {
+        let operator = match logical.operator {
+            LogicalOp::Or => "or",
+            LogicalOp::And => "and",
+        };
+
+        self.parenthesize(operator, [&logical.left, &logical.right])
     }
 
-    fn visit_assign(&mut self, assign: &Assign) -> Self::Output {
-        format!("{} = {:#?}", assign.name, assign.value)
+    fn visit_var(&mut self, var: &str) -> Self::Output {
+        var.to_owned()
     }
 }

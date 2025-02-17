@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 
 use crate::{
-    ast::{Assign, Binary, Expr, Grouping, Stmt, Unary, Var},
+    ast::{Assign, Binary, Expr, Grouping, If, Logical, Stmt, Unary, Var},
     token::{Token, TokenKind},
 };
 
@@ -20,6 +20,8 @@ pub enum ParseError {
     ExpectExpression,
     ExpectRightBrace,
     InvalidAssignmentTarget,
+    ExpectLeftParenAfterIf,
+    ExpectRightParenAfterIfCond,
 }
 
 type Result<T> = core::result::Result<T, ParseError>;
@@ -81,14 +83,28 @@ impl<'src> Parser<'src> {
 
     fn statement(&mut self) -> Result<Stmt> {
         match self
-            .next_if(|kind| matches!(kind, TokenKind::Print | TokenKind::LeftBrace))
+            .next_if(|kind| {
+                matches!(
+                    kind,
+                    TokenKind::Print | TokenKind::LeftBrace | TokenKind::If
+                )
+            })
             .map(|token| token.kind)
         {
             Some(TokenKind::Print) => self.print_statement(),
             Some(TokenKind::LeftBrace) => self.block(),
+            Some(TokenKind::If) => self.if_statement(),
             None => self.expression_statement(),
             _ => unreachable!(),
         }
+    }
+
+    fn print_statement(&mut self) -> Result<Stmt> {
+        let expr = self.expression()?;
+
+        self.consume(TokenKind::Semicolon, ParseError::ExpectSemiAfterValue)?;
+
+        Ok(Stmt::Print(expr))
     }
 
     fn statements(&mut self) -> Result<Vec<Stmt>> {
@@ -110,12 +126,24 @@ impl<'src> Parser<'src> {
         Ok(Stmt::Block(self.statements()?))
     }
 
-    fn print_statement(&mut self) -> Result<Stmt> {
-        let expr = self.expression()?;
+    fn if_statement(&mut self) -> Result<Stmt> {
+        self.consume(TokenKind::LeftParen, ParseError::ExpectLeftParenAfterIf)?;
 
-        self.consume(TokenKind::Semicolon, ParseError::ExpectSemiAfterValue)?;
+        let condition = self.expression()?;
 
-        Ok(Stmt::Print(expr))
+        self.consume(
+            TokenKind::RightParen,
+            ParseError::ExpectRightParenAfterIfCond,
+        )?;
+
+        let then_stmt = self.statement()?;
+
+        let else_stmt = match self.next_if(|kind| matches!(kind, TokenKind::Else)) {
+            Some(_) => Some(self.statement()?),
+            None => None,
+        };
+
+        Ok(Stmt::If(Box::new(If::new(condition, then_stmt, else_stmt))))
     }
 
     fn expression_statement(&mut self) -> Result<Stmt> {
@@ -131,7 +159,7 @@ impl<'src> Parser<'src> {
     }
 
     fn assignment(&mut self) -> Result<Expr> {
-        let expr = self.equality()?;
+        let expr = self.or()?;
 
         if self
             .next_if(|kind| matches!(kind, TokenKind::Equal))
@@ -147,6 +175,32 @@ impl<'src> Parser<'src> {
         } else {
             Ok(expr)
         }
+    }
+
+    fn or(&mut self) -> Result<Expr> {
+        let mut expr = self.and()?;
+
+        while let Some(token) = self.next_if(|kind| matches!(kind, TokenKind::Or)) {
+            let kind = token.kind.into();
+            let right = self.and()?;
+
+            expr = Expr::Logical(Box::new(Logical::new(expr, kind, right)));
+        }
+
+        Ok(expr)
+    }
+
+    fn and(&mut self) -> Result<Expr> {
+        let mut expr = self.equality()?;
+
+        while let Some(token) = self.next_if(|kind| matches!(kind, TokenKind::And)) {
+            let kind = token.kind.into();
+            let right = self.equality()?;
+
+            expr = Expr::Logical(Box::new(Logical::new(expr, kind, right)));
+        }
+
+        Ok(expr)
     }
 
     fn equality(&mut self) -> Result<Expr> {

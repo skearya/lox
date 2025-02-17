@@ -1,7 +1,9 @@
 use std::{collections::HashMap, mem};
 
 use crate::{
-    ast::{Assign, Binary, BinaryOp, Expr, Grouping, Stmt, Unary, UnaryOp, Var},
+    ast::{
+        Assign, Binary, BinaryOp, Expr, Grouping, If, Logical, LogicalOp, Stmt, Unary, UnaryOp, Var,
+    },
     token::Literal,
     visitor::{ExprVisitor, StmtVisitor},
 };
@@ -116,6 +118,41 @@ impl Interpreter {
 impl StmtVisitor for Interpreter {
     type Output = Result<()>;
 
+    fn visit_expr_stmt(&mut self, expr: &Expr) -> Self::Output {
+        ExprVisitor::visit(self, expr)?;
+
+        Ok(())
+    }
+
+    fn visit_var_stmt(&mut self, var: &Var) -> Self::Output {
+        let value = match &var.initializer {
+            Some(initializer) => ExprVisitor::visit(self, initializer)?,
+            None => Value::Nil,
+        };
+
+        self.environment.define(var.name.clone(), value);
+
+        Ok(())
+    }
+
+    fn visit_print_stmt(&mut self, expr: &Expr) -> Self::Output {
+        dbg!(ExprVisitor::visit(self, expr)?);
+
+        Ok(())
+    }
+
+    fn visit_if_stmt(&mut self, stmt: &If) -> Self::Output {
+        let condition = ExprVisitor::visit(self, &stmt.condition)?;
+
+        if Interpreter::is_truthy(&condition) {
+            StmtVisitor::visit(self, &stmt.then_stmt)?;
+        } else if let Some(else_stmt) = &stmt.else_stmt {
+            StmtVisitor::visit(self, else_stmt)?;
+        }
+
+        Ok(())
+    }
+
     fn visit_block_stmt(&mut self, block: &[Stmt]) -> Self::Output {
         let new = Environment::enclosing(Box::new(self.environment.clone()));
         let prev = mem::replace(&mut self.environment, new);
@@ -129,29 +166,6 @@ impl StmtVisitor for Interpreter {
         }
 
         self.environment = prev;
-
-        Ok(())
-    }
-
-    fn visit_expr_stmt(&mut self, expr: &Expr) -> Self::Output {
-        ExprVisitor::visit(self, expr)?;
-
-        Ok(())
-    }
-
-    fn visit_print_stmt(&mut self, expr: &Expr) -> Self::Output {
-        dbg!(ExprVisitor::visit(self, expr)?);
-
-        Ok(())
-    }
-
-    fn visit_var_stmt(&mut self, var: &Var) -> Self::Output {
-        let value = match &var.initializer {
-            Some(initializer) => ExprVisitor::visit(self, initializer)?,
-            None => Value::Nil,
-        };
-
-        self.environment.define(var.name.clone(), value);
 
         Ok(())
     }
@@ -191,6 +205,15 @@ impl ExprVisitor for Interpreter {
         Ok(value)
     }
 
+    fn visit_assign(&mut self, assign: &Assign) -> Self::Output {
+        let value = ExprVisitor::visit(self, &assign.value)?;
+
+        self.environment
+            .assign(assign.name.clone(), value.clone())?;
+
+        Ok(value)
+    }
+
     fn visit_grouping(&mut self, grouping: &Grouping) -> Self::Output {
         ExprVisitor::visit(self, &grouping.expr)
     }
@@ -218,16 +241,20 @@ impl ExprVisitor for Interpreter {
         Ok(value)
     }
 
-    fn visit_var(&mut self, var: &str) -> Self::Output {
-        self.environment.get(var)
+    fn visit_logical(&mut self, logical: &Logical) -> Self::Output {
+        let left = ExprVisitor::visit(self, &logical.left)?;
+        let truthy = Interpreter::is_truthy(&left);
+
+        match logical.operator {
+            LogicalOp::Or if truthy => return Ok(left),
+            LogicalOp::And if !truthy => return Ok(left),
+            _ => {}
+        };
+
+        ExprVisitor::visit(self, &logical.right)
     }
 
-    fn visit_assign(&mut self, assign: &Assign) -> Self::Output {
-        let value = ExprVisitor::visit(self, &assign.value)?;
-
-        self.environment
-            .assign(assign.name.clone(), value.clone())?;
-
-        Ok(value)
+    fn visit_var(&mut self, var: &str) -> Self::Output {
+        self.environment.get(var)
     }
 }
