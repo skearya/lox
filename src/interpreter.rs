@@ -2,7 +2,8 @@ use std::{collections::HashMap, mem};
 
 use crate::{
     ast::{
-        Assign, Binary, BinaryOp, Expr, Grouping, If, Logical, LogicalOp, Stmt, Unary, UnaryOp, Var,
+        Assign, Binary, BinaryOp, Expr, Grouping, If, Logical, LogicalOp, Stmt, Unary, UnaryOp,
+        Var, While,
     },
     token::Literal,
     visitor::{ExprVisitor, StmtVisitor},
@@ -29,7 +30,7 @@ pub struct Interpreter {
     environment: Environment,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 struct Environment {
     enclosing: Option<Box<Environment>>,
     values: HashMap<String, Value>,
@@ -54,11 +55,10 @@ impl Environment {
         if let Some(value) = self.values.get(name).cloned() {
             Ok(value)
         } else {
-            let Some(enclosing) = self.enclosing.as_mut() else {
-                return Err(InterpreterError::UndefinedVariable);
-            };
-
-            enclosing.get(name)
+            match self.enclosing.as_mut() {
+                Some(enclosing) => enclosing.get(name),
+                None => Err(InterpreterError::UndefinedVariable),
+            }
         }
     }
 
@@ -72,11 +72,10 @@ impl Environment {
 
             Ok(())
         } else {
-            let Some(enclosing) = self.enclosing.as_mut() else {
-                return Err(InterpreterError::UndefinedVariable);
-            };
-
-            enclosing.assign(name, value)
+            match self.enclosing.as_mut() {
+                Some(enclosing) => enclosing.assign(name, value),
+                None => Err(InterpreterError::UndefinedVariable),
+            }
         }
     }
 }
@@ -90,7 +89,7 @@ impl Interpreter {
 
     pub fn interpret(&mut self, stmts: &[Stmt]) {
         for stmt in stmts {
-            if let Err(err) = StmtVisitor::visit(self, stmt) {
+            if let Err(err) = self.visit_stmt(stmt) {
                 eprintln!("runtime error: {err:#?}");
             }
         }
@@ -119,14 +118,14 @@ impl StmtVisitor for Interpreter {
     type Output = Result<()>;
 
     fn visit_expr_stmt(&mut self, expr: &Expr) -> Self::Output {
-        ExprVisitor::visit(self, expr)?;
+        self.visit_expr(expr)?;
 
         Ok(())
     }
 
     fn visit_var_stmt(&mut self, var: &Var) -> Self::Output {
         let value = match &var.initializer {
-            Some(initializer) => ExprVisitor::visit(self, initializer)?,
+            Some(initializer) => self.visit_expr(initializer)?,
             None => Value::Nil,
         };
 
@@ -136,36 +135,44 @@ impl StmtVisitor for Interpreter {
     }
 
     fn visit_print_stmt(&mut self, expr: &Expr) -> Self::Output {
-        dbg!(ExprVisitor::visit(self, expr)?);
+        dbg!(self.visit_expr(expr)?);
 
         Ok(())
     }
 
     fn visit_if_stmt(&mut self, stmt: &If) -> Self::Output {
-        let condition = ExprVisitor::visit(self, &stmt.condition)?;
+        let condition = self.visit_expr(&stmt.condition)?;
 
         if Interpreter::is_truthy(&condition) {
-            StmtVisitor::visit(self, &stmt.then_stmt)?;
+            self.visit_stmt(&stmt.then_stmt)?;
         } else if let Some(else_stmt) = &stmt.else_stmt {
-            StmtVisitor::visit(self, else_stmt)?;
+            self.visit_stmt(else_stmt)?;
+        }
+
+        Ok(())
+    }
+
+    fn visit_while_stmt(&mut self, while_stmt: &While) -> Self::Output {
+        while Interpreter::is_truthy(&self.visit_expr(&while_stmt.condition)?) {
+            self.visit_stmt(&while_stmt.body)?;
         }
 
         Ok(())
     }
 
     fn visit_block_stmt(&mut self, block: &[Stmt]) -> Self::Output {
-        let new = Environment::enclosing(Box::new(self.environment.clone()));
-        let prev = mem::replace(&mut self.environment, new);
+        self.environment = Environment::enclosing(Box::new(mem::take(&mut self.environment)));
 
         for stmt in block {
-            if let Err(err) = StmtVisitor::visit(self, stmt) {
-                self.environment = prev;
-
-                return Err(err)?;
-            }
+            self.visit_stmt(stmt)?;
         }
 
-        self.environment = prev;
+        self.environment = mem::take(
+            self.environment
+                .enclosing
+                .as_mut()
+                .expect("should have parent environment"),
+        );
 
         Ok(())
     }
@@ -175,8 +182,8 @@ impl ExprVisitor for Interpreter {
     type Output = Result<Value>;
 
     fn visit_binary(&mut self, binary: &Binary) -> Self::Output {
-        let left = ExprVisitor::visit(self, &binary.left)?;
-        let right = ExprVisitor::visit(self, &binary.right)?;
+        let left = self.visit_expr(&binary.left)?;
+        let right = self.visit_expr(&binary.right)?;
 
         let value = match (left, &binary.operator, right) {
             (left, BinaryOp::EqualEqual, right) => {
@@ -206,7 +213,7 @@ impl ExprVisitor for Interpreter {
     }
 
     fn visit_assign(&mut self, assign: &Assign) -> Self::Output {
-        let value = ExprVisitor::visit(self, &assign.value)?;
+        let value = self.visit_expr(&assign.value)?;
 
         self.environment
             .assign(assign.name.clone(), value.clone())?;
@@ -215,7 +222,7 @@ impl ExprVisitor for Interpreter {
     }
 
     fn visit_grouping(&mut self, grouping: &Grouping) -> Self::Output {
-        ExprVisitor::visit(self, &grouping.expr)
+        self.visit_expr(&grouping.expr)
     }
 
     fn visit_literal(&mut self, literal: &Literal) -> Self::Output {
@@ -230,7 +237,7 @@ impl ExprVisitor for Interpreter {
     }
 
     fn visit_unary(&mut self, unary: &Unary) -> Self::Output {
-        let right = ExprVisitor::visit(self, &unary.right)?;
+        let right = self.visit_expr(&unary.right)?;
 
         let value = match (&unary.operator, right) {
             (UnaryOp::Minus, Value::Number(num)) => Value::Number(-num),
@@ -242,7 +249,7 @@ impl ExprVisitor for Interpreter {
     }
 
     fn visit_logical(&mut self, logical: &Logical) -> Self::Output {
-        let left = ExprVisitor::visit(self, &logical.left)?;
+        let left = self.visit_expr(&logical.left)?;
         let truthy = Interpreter::is_truthy(&left);
 
         match logical.operator {
@@ -251,7 +258,7 @@ impl ExprVisitor for Interpreter {
             _ => {}
         };
 
-        ExprVisitor::visit(self, &logical.right)
+        self.visit_expr(&logical.right)
     }
 
     fn visit_var(&mut self, var: &str) -> Self::Output {

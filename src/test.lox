@@ -1,5 +1,8 @@
-if (1 == 2) {
-  print "bruh";
-} else {
-  print "bruh2";
+var a = 0;
+var temp;
+
+for (var b = 1; a < 10000; b = temp + b) {
+  print a;
+  temp = a;
+  a = b;
 }

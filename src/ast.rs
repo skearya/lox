@@ -150,17 +150,23 @@ pub struct Var {
     pub initializer: Option<Expr>,
 }
 
-impl Var {
-    pub fn new(name: String, initializer: Option<Expr>) -> Self {
-        Self { name, initializer }
-    }
-}
-
 #[derive(Debug)]
 pub struct If {
     pub condition: Expr,
     pub then_stmt: Stmt,
     pub else_stmt: Option<Stmt>,
+}
+
+#[derive(Debug)]
+pub struct While {
+    pub condition: Expr,
+    pub body: Stmt,
+}
+
+impl Var {
+    pub fn new(name: String, initializer: Option<Expr>) -> Self {
+        Self { name, initializer }
+    }
 }
 
 impl If {
@@ -173,11 +179,18 @@ impl If {
     }
 }
 
+impl While {
+    pub fn new(condition: Expr, body: Stmt) -> Self {
+        Self { condition, body }
+    }
+}
+
 #[derive(Debug)]
 pub enum Stmt {
     Expr(Expr),
     Var(Var),
     Print(Expr),
     If(Box<If>),
+    While(Box<While>),
     Block(Vec<Stmt>),
 }

@@ -1,12 +1,12 @@
 use crate::{
-    ast::{Assign, Binary, Expr, Grouping, If, Logical, Stmt, Unary, Var},
+    ast::{Assign, Binary, Expr, Grouping, If, Logical, Stmt, Unary, Var, While},
     token::Literal,
 };
 
 pub trait StmtVisitor: Sized {
     type Output;
 
-    fn visit(&mut self, stmt: &Stmt) -> Self::Output {
+    fn visit_stmt(&mut self, stmt: &Stmt) -> Self::Output {
         stmt.accept(self)
     }
 
@@ -14,6 +14,7 @@ pub trait StmtVisitor: Sized {
     fn visit_var_stmt(&mut self, var: &Var) -> Self::Output;
     fn visit_print_stmt(&mut self, expr: &Expr) -> Self::Output;
     fn visit_if_stmt(&mut self, if_stmt: &If) -> Self::Output;
+    fn visit_while_stmt(&mut self, while_stmt: &While) -> Self::Output;
     fn visit_block_stmt(&mut self, block: &[Stmt]) -> Self::Output;
 }
 
@@ -24,6 +25,7 @@ impl Stmt {
             Stmt::Var(var) => visitor.visit_var_stmt(var),
             Stmt::Print(expr) => visitor.visit_print_stmt(expr),
             Stmt::If(if_stmt) => visitor.visit_if_stmt(if_stmt),
+            Stmt::While(while_stmt) => visitor.visit_while_stmt(while_stmt),
             Stmt::Block(block) => visitor.visit_block_stmt(block),
         }
     }
@@ -32,7 +34,7 @@ impl Stmt {
 pub trait ExprVisitor: Sized {
     type Output;
 
-    fn visit(&mut self, expr: &Expr) -> Self::Output {
+    fn visit_expr(&mut self, expr: &Expr) -> Self::Output {
         expr.accept(self)
     }
 

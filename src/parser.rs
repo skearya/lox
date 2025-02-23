@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 
 use crate::{
-    ast::{Assign, Binary, Expr, Grouping, If, Logical, Stmt, Unary, Var},
+    ast::{Assign, Binary, Expr, Grouping, If, Logical, Stmt, Unary, Var, While},
     token::{Token, TokenKind},
 };
 
@@ -22,6 +22,11 @@ pub enum ParseError {
     InvalidAssignmentTarget,
     ExpectLeftParenAfterIf,
     ExpectRightParenAfterIfCond,
+    ExpectLeftParenAfterWhile,
+    ExpectRightParenAfterWhile,
+    ExpectParenAfterFor,
+    ExpectSemicolonAfterLoopCond,
+    ExpectLeftParenAfterFor,
 }
 
 type Result<T> = core::result::Result<T, ParseError>;
@@ -82,11 +87,16 @@ impl<'src> Parser<'src> {
     }
 
     fn statement(&mut self) -> Result<Stmt> {
+        // TODO: make cleaner?
         match self
             .next_if(|kind| {
                 matches!(
                     kind,
-                    TokenKind::Print | TokenKind::LeftBrace | TokenKind::If
+                    TokenKind::Print
+                        | TokenKind::LeftBrace
+                        | TokenKind::If
+                        | TokenKind::While
+                        | TokenKind::For
                 )
             })
             .map(|token| token.kind)
@@ -94,6 +104,8 @@ impl<'src> Parser<'src> {
             Some(TokenKind::Print) => self.print_statement(),
             Some(TokenKind::LeftBrace) => self.block(),
             Some(TokenKind::If) => self.if_statement(),
+            Some(TokenKind::While) => self.while_statement(),
+            Some(TokenKind::For) => self.for_statement(),
             None => self.expression_statement(),
             _ => unreachable!(),
         }
@@ -105,21 +117,6 @@ impl<'src> Parser<'src> {
         self.consume(TokenKind::Semicolon, ParseError::ExpectSemiAfterValue)?;
 
         Ok(Stmt::Print(expr))
-    }
-
-    fn statements(&mut self) -> Result<Vec<Stmt>> {
-        let mut statements = vec![];
-
-        while self
-            .peek()
-            .is_some_and(|kind| !matches!(kind, TokenKind::RightBrace))
-        {
-            statements.push(self.declaration()?);
-        }
-
-        self.consume(TokenKind::RightBrace, ParseError::ExpectRightBrace)?;
-
-        Ok(statements)
     }
 
     fn block(&mut self) -> Result<Stmt> {
@@ -144,6 +141,68 @@ impl<'src> Parser<'src> {
         };
 
         Ok(Stmt::If(Box::new(If::new(condition, then_stmt, else_stmt))))
+    }
+
+    fn while_statement(&mut self) -> Result<Stmt> {
+        self.consume(TokenKind::LeftParen, ParseError::ExpectLeftParenAfterWhile)?;
+
+        let condition = self.expression()?;
+
+        self.consume(
+            TokenKind::RightParen,
+            ParseError::ExpectRightParenAfterWhile,
+        )?;
+
+        let body = self.statement()?;
+
+        Ok(Stmt::While(Box::new(While::new(condition, body))))
+    }
+
+    fn for_statement(&mut self) -> Result<Stmt> {
+        self.consume(TokenKind::LeftParen, ParseError::ExpectParenAfterFor)?;
+
+        let initializer = match self
+            .next_if(|kind| matches!(kind, TokenKind::Semicolon | TokenKind::Var))
+            .map(|token| token.kind)
+        {
+            Some(TokenKind::Semicolon) => None,
+            Some(TokenKind::Var) => Some(self.var_declaration()?),
+            None => Some(self.expression_statement()?),
+            _ => unreachable!(),
+        };
+
+        let condition = match self.next_if(|kind| matches!(kind, TokenKind::Semicolon)) {
+            Some(_) => None,
+            None => Some(self.expression()?),
+        };
+
+        self.consume(
+            TokenKind::Semicolon,
+            ParseError::ExpectSemicolonAfterLoopCond,
+        )?;
+
+        let increment = match self.next_if(|kind| matches!(kind, TokenKind::Semicolon)) {
+            Some(_) => None,
+            None => Some(self.expression()?),
+        };
+
+        self.consume(TokenKind::RightParen, ParseError::ExpectLeftParenAfterFor)?;
+
+        let mut body = self.statement()?;
+
+        if let Some(increment) = increment {
+            body = Stmt::Block(vec![body, Stmt::Expr(increment)]);
+        }
+
+        if let Some(condition) = condition {
+            body = Stmt::While(Box::new(While::new(condition, body)));
+        }
+
+        if let Some(initalizer) = initializer {
+            body = Stmt::Block(vec![initalizer, body]);
+        }
+
+        Ok(body)
     }
 
     fn expression_statement(&mut self) -> Result<Stmt> {
@@ -326,6 +385,21 @@ impl<'src> Parser<'src> {
                 }
             }
         }
+    }
+
+    fn statements(&mut self) -> Result<Vec<Stmt>> {
+        let mut statements = vec![];
+
+        while self
+            .peek()
+            .is_some_and(|kind| !matches!(kind, TokenKind::RightBrace))
+        {
+            statements.push(self.declaration()?);
+        }
+
+        self.consume(TokenKind::RightBrace, ParseError::ExpectRightBrace)?;
+
+        Ok(statements)
     }
 }
 
