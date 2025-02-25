@@ -1,12 +1,8 @@
 use std::{collections::HashMap, mem};
 
 use crate::{
-    ast::{
-        Assign, Binary, BinaryOp, Expr, Grouping, If, Logical, LogicalOp, Stmt, Unary, UnaryOp,
-        Var, While,
-    },
+    ast::{BinaryOp, Expr, LogicalOp, Stmt, UnaryOp},
     token::Literal,
-    visitor::{ExprVisitor, StmtVisitor},
 };
 
 #[derive(Debug, Clone)]
@@ -89,7 +85,7 @@ impl Interpreter {
 
     pub fn interpret(&mut self, stmts: &[Stmt]) {
         for stmt in stmts {
-            if let Err(err) = self.visit_stmt(stmt) {
+            if let Err(err) = self.stmt(stmt) {
                 eprintln!("runtime error: {err:#?}");
             }
         }
@@ -112,156 +108,126 @@ impl Interpreter {
             _ => false,
         }
     }
-}
 
-impl StmtVisitor for Interpreter {
-    type Output = Result<()>;
+    fn expr(&mut self, expr: &Expr) -> Result<Value> {
+        let value = match expr {
+            Expr::Binary(binary) => {
+                let left = self.expr(&binary.left)?;
+                let right = self.expr(&binary.right)?;
 
-    fn visit_expr_stmt(&mut self, expr: &Expr) -> Self::Output {
-        self.visit_expr(expr)?;
-
-        Ok(())
-    }
-
-    fn visit_var_stmt(&mut self, var: &Var) -> Self::Output {
-        let value = match &var.initializer {
-            Some(initializer) => self.visit_expr(initializer)?,
-            None => Value::Nil,
-        };
-
-        self.environment.define(var.name.clone(), value);
-
-        Ok(())
-    }
-
-    fn visit_print_stmt(&mut self, expr: &Expr) -> Self::Output {
-        dbg!(self.visit_expr(expr)?);
-
-        Ok(())
-    }
-
-    fn visit_if_stmt(&mut self, stmt: &If) -> Self::Output {
-        let condition = self.visit_expr(&stmt.condition)?;
-
-        if Interpreter::is_truthy(&condition) {
-            self.visit_stmt(&stmt.then_stmt)?;
-        } else if let Some(else_stmt) = &stmt.else_stmt {
-            self.visit_stmt(else_stmt)?;
-        }
-
-        Ok(())
-    }
-
-    fn visit_while_stmt(&mut self, while_stmt: &While) -> Self::Output {
-        while Interpreter::is_truthy(&self.visit_expr(&while_stmt.condition)?) {
-            self.visit_stmt(&while_stmt.body)?;
-        }
-
-        Ok(())
-    }
-
-    fn visit_block_stmt(&mut self, block: &[Stmt]) -> Self::Output {
-        self.environment = Environment::enclosing(Box::new(mem::take(&mut self.environment)));
-
-        for stmt in block {
-            self.visit_stmt(stmt)?;
-        }
-
-        self.environment = mem::take(
-            self.environment
-                .enclosing
-                .as_mut()
-                .expect("should have parent environment"),
-        );
-
-        Ok(())
-    }
-}
-
-impl ExprVisitor for Interpreter {
-    type Output = Result<Value>;
-
-    fn visit_binary(&mut self, binary: &Binary) -> Self::Output {
-        let left = self.visit_expr(&binary.left)?;
-        let right = self.visit_expr(&binary.right)?;
-
-        let value = match (left, &binary.operator, right) {
-            (left, BinaryOp::EqualEqual, right) => {
-                Value::Bool(Interpreter::is_equal(&left, &right))
+                match (left, &binary.operator, right) {
+                    (left, BinaryOp::EqualEqual, right) => {
+                        Value::Bool(Interpreter::is_equal(&left, &right))
+                    }
+                    (left, BinaryOp::BangEqual, right) => {
+                        Value::Bool(!Interpreter::is_equal(&left, &right))
+                    }
+                    (Value::String(left), BinaryOp::Plus, Value::String(right)) => {
+                        Value::String(left + &right)
+                    }
+                    (Value::Number(left), operator, Value::Number(right)) => match operator {
+                        BinaryOp::Minus => Value::Number(left - right),
+                        BinaryOp::Plus => Value::Number(left + right),
+                        BinaryOp::Slash => Value::Number(left / right),
+                        BinaryOp::Star => Value::Number(left * right),
+                        BinaryOp::Greater => Value::Bool(left > right),
+                        BinaryOp::GreaterEqual => Value::Bool(left >= right),
+                        BinaryOp::Less => Value::Bool(left < right),
+                        BinaryOp::LessEqual => Value::Bool(left <= right),
+                        BinaryOp::EqualEqual | BinaryOp::BangEqual => unreachable!(),
+                    },
+                    _ => return Err(InterpreterError::OperandsNotNumber),
+                }
             }
-            (left, BinaryOp::BangEqual, right) => {
-                Value::Bool(!Interpreter::is_equal(&left, &right))
+            Expr::Assign(assign) => {
+                let value = self.expr(&assign.value)?;
+
+                self.environment
+                    .assign(assign.name.clone(), value.clone())?;
+
+                value
             }
-            (Value::String(left), BinaryOp::Plus, Value::String(right)) => {
-                Value::String(left + &right)
-            }
-            (Value::Number(left), operator, Value::Number(right)) => match operator {
-                BinaryOp::Minus => Value::Number(left - right),
-                BinaryOp::Plus => Value::Number(left + right),
-                BinaryOp::Slash => Value::Number(left / right),
-                BinaryOp::Star => Value::Number(left * right),
-                BinaryOp::Greater => Value::Bool(left > right),
-                BinaryOp::GreaterEqual => Value::Bool(left >= right),
-                BinaryOp::Less => Value::Bool(left < right),
-                BinaryOp::LessEqual => Value::Bool(left <= right),
-                BinaryOp::EqualEqual | BinaryOp::BangEqual => unreachable!(),
+            Expr::Grouping(grouping) => self.expr(&grouping.expr)?,
+            Expr::Literal(literal) => match literal {
+                Literal::Nil => Value::Nil,
+                Literal::Bool(bool) => Value::Bool(*bool),
+                Literal::String(str) => Value::String(str.clone()),
+                Literal::Number(num) => Value::Number(*num),
             },
-            _ => return Err(InterpreterError::OperandsNotNumber),
+            Expr::Unary(unary) => {
+                let right = self.expr(&unary.right)?;
+
+                match (&unary.operator, right) {
+                    (UnaryOp::Minus, Value::Number(num)) => Value::Number(-num),
+                    (UnaryOp::Minus, _) => return Err(InterpreterError::OperandNotNumber),
+                    (UnaryOp::Bang, value) => Value::Bool(!Interpreter::is_truthy(&value)),
+                }
+            }
+            Expr::Logical(logical) => {
+                let left = self.expr(&logical.left)?;
+                let truthy = Interpreter::is_truthy(&left);
+
+                match logical.operator {
+                    LogicalOp::Or if truthy => return Ok(left),
+                    LogicalOp::And if !truthy => return Ok(left),
+                    _ => {}
+                };
+
+                self.expr(&logical.right)?
+            }
+            Expr::Variable(var) => self.environment.get(var)?,
         };
 
         Ok(value)
     }
 
-    fn visit_assign(&mut self, assign: &Assign) -> Self::Output {
-        let value = self.visit_expr(&assign.value)?;
+    fn stmt(&mut self, stmt: &Stmt) -> Result<()> {
+        match stmt {
+            Stmt::Expr(expr) => {
+                self.expr(expr)?;
+            }
+            Stmt::Var(var) => {
+                let value = match &var.initializer {
+                    Some(initializer) => self.expr(initializer)?,
+                    None => Value::Nil,
+                };
 
-        self.environment
-            .assign(assign.name.clone(), value.clone())?;
+                self.environment.define(var.name.clone(), value);
+            }
+            Stmt::Print(expr) => {
+                println!("{:?}", self.expr(expr)?);
+            }
+            Stmt::If(if_stmt) => {
+                let condition = self.expr(&if_stmt.condition)?;
 
-        Ok(value)
-    }
+                if Interpreter::is_truthy(&condition) {
+                    self.stmt(&if_stmt.then_stmt)?;
+                } else if let Some(else_stmt) = &if_stmt.else_stmt {
+                    self.stmt(else_stmt)?;
+                }
+            }
+            Stmt::While(while_stmt) => {
+                while Interpreter::is_truthy(&self.expr(&while_stmt.condition)?) {
+                    self.stmt(&while_stmt.body)?;
+                }
+            }
+            Stmt::Block(block) => {
+                self.environment =
+                    Environment::enclosing(Box::new(mem::take(&mut self.environment)));
 
-    fn visit_grouping(&mut self, grouping: &Grouping) -> Self::Output {
-        self.visit_expr(&grouping.expr)
-    }
+                for stmt in block {
+                    self.stmt(stmt)?;
+                }
 
-    fn visit_literal(&mut self, literal: &Literal) -> Self::Output {
-        let value = match literal {
-            Literal::Nil => Value::Nil,
-            Literal::Bool(bool) => Value::Bool(*bool),
-            Literal::String(str) => Value::String(str.clone()),
-            Literal::Number(num) => Value::Number(*num),
+                self.environment = mem::take(
+                    self.environment
+                        .enclosing
+                        .as_mut()
+                        .expect("should have parent environment"),
+                );
+            }
         };
 
-        Ok(value)
-    }
-
-    fn visit_unary(&mut self, unary: &Unary) -> Self::Output {
-        let right = self.visit_expr(&unary.right)?;
-
-        let value = match (&unary.operator, right) {
-            (UnaryOp::Minus, Value::Number(num)) => Value::Number(-num),
-            (UnaryOp::Minus, _) => return Err(InterpreterError::OperandNotNumber),
-            (UnaryOp::Bang, value) => Value::Bool(!Interpreter::is_truthy(&value)),
-        };
-
-        Ok(value)
-    }
-
-    fn visit_logical(&mut self, logical: &Logical) -> Self::Output {
-        let left = self.visit_expr(&logical.left)?;
-        let truthy = Interpreter::is_truthy(&left);
-
-        match logical.operator {
-            LogicalOp::Or if truthy => return Ok(left),
-            LogicalOp::And if !truthy => return Ok(left),
-            _ => {}
-        };
-
-        self.visit_expr(&logical.right)
-    }
-
-    fn visit_var(&mut self, var: &str) -> Self::Output {
-        self.environment.get(var)
+        Ok(())
     }
 }

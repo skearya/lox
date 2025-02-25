@@ -4,7 +4,6 @@ mod parser;
 mod printer;
 mod scanner;
 mod token;
-mod visitor;
 
 use std::{
     collections::VecDeque,
