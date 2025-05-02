@@ -1,31 +1,19 @@
-use std::{collections::VecDeque, iter::Peekable, mem, slice::Iter};
+use ariadne::{Color, ColorGenerator, Fmt, Label, Report, ReportKind, Source};
+use ast::Stmt;
+use parser::Parser;
+use scanner::Scanner;
 
-#[derive(Clone, PartialEq, Eq)]
-enum TokenKind {
-    Var,
-    String(String),
+mod ast;
+mod error;
+mod parser;
+mod scanner;
+mod token;
+
+fn main() {
+    let source = include_str!("sample.lox");
+
+    let scanner = Scanner::new(source);
+    let parser = Parser::new(source, scanner);
+
+    dbg!(parser.collect::<Vec<Stmt>>());
 }
-
-struct Parser<I: Iterator<Item = TokenKind>> {
-    tokens: Peekable<I>,
-}
-
-impl<I: Iterator<Item = TokenKind>> Parser<I> {
-    pub fn new(tokens: I) -> Self {
-        Self {
-            tokens: tokens.peekable(),
-        }
-    }
-
-    fn take(&mut self, tokens: &[TokenKind]) -> Option<TokenKind> {
-        let current = self.tokens.peek()?;
-
-        if tokens.iter().any(|token| token == current) {
-            self.tokens.next()
-        } else {
-            None
-        }
-    }
-}
-
-fn main() {}
