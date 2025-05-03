@@ -1,4 +1,13 @@
-if true {
-    
+var x = 2;
+
+if (x == 2) {
+    print x;
+
+    var y = 0;
+    while (y < 5) {
+        y = y + 1;
+        print y;
+    }
 }
 
+print "bruh";

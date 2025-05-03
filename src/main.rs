@@ -1,10 +1,10 @@
-use ariadne::{Color, ColorGenerator, Fmt, Label, Report, ReportKind, Source};
-use ast::Stmt;
+use interpreter::Interpreter;
 use parser::Parser;
 use scanner::Scanner;
 
 mod ast;
 mod error;
+mod interpreter;
 mod parser;
 mod scanner;
 mod token;
@@ -15,5 +15,7 @@ fn main() {
     let scanner = Scanner::new(source);
     let parser = Parser::new(source, scanner);
 
-    dbg!(parser.collect::<Vec<Stmt>>());
+    if let Some(stmts) = parser.parse() {
+        Interpreter::new().interpret(&stmts)
+    }
 }

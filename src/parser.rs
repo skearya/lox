@@ -8,7 +8,8 @@ use crate::{
 
 #[derive(Debug)]
 pub struct Parser<'src, I: Iterator<Item = Token<'src>>> {
-    src: &'src str,
+    pub src: &'src str,
+    pub errored: bool,
     tokens: Peekable<I>,
 }
 
@@ -28,11 +29,24 @@ impl<'src, I: Iterator<Item = Token<'src>>> Parser<'src, I> {
         Self {
             src,
             tokens: tokens.peekable(),
+            errored: false,
         }
     }
 
+    pub fn parse(mut self) -> Option<Vec<Stmt>> {
+        let mut statements = vec![];
+
+        while self.peek().is_some() {
+            if let Ok(stmt) = self.declaration() {
+                statements.push(stmt);
+            }
+        }
+
+        if self.errored { None } else { Some(statements) }
+    }
+
     fn peek(&mut self) -> Option<&TokenKind> {
-        self.tokens.peek().map(|token| &token.kind)
+        self.tokens.peek().map(|Token { kind, .. }| kind)
     }
 
     fn next(&mut self) -> Option<Token<'src>> {
@@ -68,11 +82,15 @@ impl<'src, I: Iterator<Item = Token<'src>>> Parser<'src, I> {
                 }
             }
             Some(unexpected) => {
+                self.errored = true;
                 error::unexpected(&expected, unexpected, self.src, error);
 
                 Err(Synchronize)
             }
-            None => Err(Synchronize),
+            None => {
+                self.errored = true;
+                Err(Synchronize)
+            }
         }
     }
 
@@ -237,7 +255,10 @@ impl<'src, I: Iterator<Item = Token<'src>>> Parser<'src, I> {
             if let Expr::Variable(name) = expr {
                 Ok(Expr::Assign(Box::new(Assign::new(name, value))))
             } else {
-                // TODO: Invalid assignment target error
+                // TODO: Better invalid assignment target error
+                self.errored = true;
+                eprintln!("Invalid assignment target: {expr:#?}");
+
                 Ok(expr)
             }
         } else {
@@ -357,16 +378,22 @@ impl<'src, I: Iterator<Item = Token<'src>>> Parser<'src, I> {
             return Ok(Expr::Variable(token.lexeme.to_owned()));
         }
 
-        self.consume(TokenKind::LeftParen, "Expected expression")?;
+        if self.eat([TokenKind::LeftParen]) {
+            let expr = self.expression()?;
 
-        let expr = self.expression()?;
+            self.consume(
+                TokenKind::RightParen,
+                "Expected parenthesis after expression",
+            )?;
 
-        self.consume(
-            TokenKind::RightParen,
-            "Expected parenthesis after expression",
-        )?;
+            return Ok(Expr::Grouping(Box::new(Grouping::new(expr))));
+        }
 
-        Ok(Expr::Grouping(Box::new(Grouping::new(expr))))
+        // TODO: Better expected expression error
+        self.errored = true;
+        eprintln!("Expected expression");
+
+        Err(Synchronize)
     }
 
     fn synchronize(&mut self) {
@@ -391,7 +418,7 @@ impl<'src, I: Iterator<Item = Token<'src>>> Parser<'src, I> {
         }
     }
 
-    pub fn statements(&mut self) -> Result<Vec<Stmt>> {
+    fn statements(&mut self) -> Result<Vec<Stmt>> {
         let mut statements = vec![];
 
         while !matches!(self.peek(), Some(TokenKind::RightBrace)) {
@@ -401,21 +428,5 @@ impl<'src, I: Iterator<Item = Token<'src>>> Parser<'src, I> {
         self.consume(TokenKind::RightBrace, "Expected right brace")?;
 
         Ok(statements)
-    }
-}
-
-impl<'src, I: Iterator<Item = Token<'src>>> Iterator for Parser<'src, I> {
-    type Item = Stmt;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            if self.peek().is_some() {
-                if let Ok(stmt) = self.declaration() {
-                    break Some(stmt);
-                }
-            } else {
-                break None;
-            }
-        }
     }
 }
