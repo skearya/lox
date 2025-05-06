@@ -1,5 +1,12 @@
 fun makeCounter() {
   var i = 0;
+
+  while (true) {
+    if (true) {
+      break;
+    }
+  }
+
   fun count() {
     i = i + 1;
     print i;

@@ -242,19 +242,19 @@ impl Interpreter {
     }
 
     fn block(&mut self, stmts: &[Stmt], environment: Rc<Environment>) -> Result<()> {
-        let current = Rc::clone(&self.environment);
+        let original = Rc::clone(&self.environment);
 
         self.environment = environment;
 
         for stmt in stmts {
             if let Err(err) = self.stmt(stmt) {
-                self.environment = current;
+                self.environment = original;
 
                 return Err(err);
             }
         }
 
-        self.environment = current;
+        self.environment = original;
 
         Ok(())
     }
