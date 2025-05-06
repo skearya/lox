@@ -71,7 +71,7 @@ impl<'src, I: Iterator<Item = Token<'src>>> Parser<'src, I> {
         self.take(kinds).is_some()
     }
 
-    fn consume(&mut self, expected: TokenKind, error: &'static str) -> Result<Token<'src>> {
+    fn consume(&mut self, expected: TokenKind, error: &str) -> Result<Token<'src>> {
         match self.tokens.peek() {
             // Non-owning version of self.take() so the error handler can use `expected`
             Some(Token { kind, .. }) if *kind == expected => {
@@ -96,7 +96,7 @@ impl<'src, I: Iterator<Item = Token<'src>>> Parser<'src, I> {
 
     fn declaration(&mut self) -> Result<Stmt> {
         let stmt = match () {
-            () if self.eat([TokenKind::Fun]) => self.function(true),
+            () if self.eat([TokenKind::Fun]) => self.function("function"),
             () if self.eat([TokenKind::Var]) => self.var_declaration(),
             () => self.statement(),
         };
@@ -108,26 +108,15 @@ impl<'src, I: Iterator<Item = Token<'src>>> Parser<'src, I> {
         stmt
     }
 
-    fn function(&mut self, function: bool) -> Result<Stmt> {
+    fn function(&mut self, kind: &str) -> Result<Stmt> {
         let name = self
-            .consume(
-                TokenKind::Identifier,
-                if function {
-                    "Expected function name"
-                } else {
-                    "Expected method name"
-                },
-            )?
+            .consume(TokenKind::Identifier, &format!("Expected {kind} name"))?
             .lexeme
             .to_owned();
 
         self.consume(
             TokenKind::LeftParen,
-            if function {
-                "Expect '(' after function name"
-            } else {
-                "Expect '(' after method name"
-            },
+            &format!("Expect '(' after {kind} name"),
         )?;
 
         let mut arguments = vec![];
@@ -156,11 +145,7 @@ impl<'src, I: Iterator<Item = Token<'src>>> Parser<'src, I> {
 
         self.consume(
             TokenKind::LeftBrace,
-            if function {
-                "Expect '{' before function body"
-            } else {
-                "Expect '{' before method body"
-            },
+            &format!("Expect '{{' before {kind} body"),
         )?;
 
         let body = self.statements()?;

@@ -1,13 +1,8 @@
-use std::{
-    cell::RefCell,
-    collections::HashMap,
-    fmt::Debug,
-    rc::Rc,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::{cell::RefCell, collections::HashMap, fmt::Debug, rc::Rc};
 
 use crate::{
     ast::{BinaryOp, Expr, Function, LogicalOp, Stmt, UnaryOp},
+    global::register_globals,
     token::Literal,
 };
 
@@ -22,7 +17,7 @@ pub enum InterpreterError {
     ArgumentArityMismatch,
 }
 
-type Result<T> = core::result::Result<T, InterpreterError>;
+pub type Result<T> = core::result::Result<T, InterpreterError>;
 
 #[derive(Debug)]
 pub struct Interpreter {
@@ -30,7 +25,7 @@ pub struct Interpreter {
 }
 
 #[derive(Debug, Clone, Default)]
-struct Environment {
+pub struct Environment {
     enclosing: Option<Rc<Environment>>,
     values: RefCell<HashMap<String, Value>>,
 }
@@ -49,50 +44,17 @@ pub trait Callable {
     fn call(&self, interpreter: &mut Interpreter, arguments: Vec<Value>) -> Result<Value>;
 }
 
-impl Callable for Function {
-    fn arity(&self) -> u8 {
-        self.args.len() as u8
-    }
-
-    fn call(&self, interpreter: &mut Interpreter, arguments: Vec<Value>) -> Result<Value> {
-        let environment = Rc::new(Environment::enclosing(Rc::clone(&interpreter.environment)));
-
-        for (name, value) in self.args.iter().zip(arguments) {
-            environment.define(name.clone(), value);
-        }
-
-        interpreter.block(&self.body, environment)?;
-
-        Ok(Value::Nil)
-    }
+#[derive(Debug)]
+struct LoxFunction {
+    declaration: Function,
+    closure: Rc<Environment>,
 }
 
 impl Interpreter {
     pub fn new() -> Self {
-        struct Clock;
-
-        impl Callable for Clock {
-            fn arity(&self) -> u8 {
-                0
-            }
-
-            fn call(
-                &self,
-                _interpreter: &mut Interpreter,
-                _arguments: Vec<Value>,
-            ) -> Result<Value> {
-                let time = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .expect("time shouldn't go backwards")
-                    .as_secs_f64();
-
-                Ok(Value::Number(time))
-            }
-        }
-
         let environment = Rc::new(Environment::new());
 
-        environment.define("clock".to_owned(), Value::Function(Rc::new(Clock)));
+        register_globals(&environment);
 
         Self { environment }
     }
@@ -225,7 +187,10 @@ impl Interpreter {
             Stmt::Function(function) => {
                 self.environment.define(
                     function.name.clone(),
-                    Value::Function(Rc::new(function.clone())),
+                    Value::Function(Rc::new(LoxFunction::new(
+                        function.clone(),
+                        Rc::clone(&self.environment),
+                    ))),
                 );
             }
             Stmt::Var(var) => {
@@ -296,21 +261,21 @@ impl Interpreter {
 }
 
 impl Environment {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             enclosing: None,
             values: RefCell::new(HashMap::new()),
         }
     }
 
-    fn enclosing(enclosing: Rc<Environment>) -> Self {
+    pub fn enclosing(enclosing: Rc<Environment>) -> Self {
         Self {
             enclosing: Some(enclosing),
             values: RefCell::new(HashMap::new()),
         }
     }
 
-    fn get(&self, name: &str) -> Result<Value> {
+    pub fn get(&self, name: &str) -> Result<Value> {
         if let Some(value) = self.values.borrow_mut().get(name).cloned() {
             Ok(value)
         } else {
@@ -321,11 +286,11 @@ impl Environment {
         }
     }
 
-    fn define(&self, name: String, value: Value) {
+    pub fn define(&self, name: String, value: Value) {
         self.values.borrow_mut().insert(name, value);
     }
 
-    fn assign(&self, name: String, value: Value) -> Result<()> {
+    pub fn assign(&self, name: String, value: Value) -> Result<()> {
         if self.values.borrow().contains_key(&name) {
             self.values.borrow_mut().insert(name, value);
 
@@ -336,6 +301,33 @@ impl Environment {
                 None => Err(InterpreterError::UndefinedVariable),
             }
         }
+    }
+}
+
+impl LoxFunction {
+    fn new(declaration: Function, closure: Rc<Environment>) -> Self {
+        Self {
+            declaration,
+            closure,
+        }
+    }
+}
+
+impl Callable for LoxFunction {
+    fn arity(&self) -> u8 {
+        self.declaration.args.len() as u8
+    }
+
+    fn call(&self, interpreter: &mut Interpreter, arguments: Vec<Value>) -> Result<Value> {
+        let environment = Rc::new(Environment::enclosing(Rc::clone(&self.closure)));
+
+        for (name, value) in self.declaration.args.iter().zip(arguments) {
+            environment.define(name.clone(), value);
+        }
+
+        interpreter.block(&self.declaration.body, environment)?;
+
+        Ok(Value::Nil)
     }
 }
 

@@ -8,6 +8,7 @@ mod interpreter;
 mod parser;
 mod scanner;
 mod token;
+mod global;
 
 fn main() {
     let source = include_str!("sample.lox");
