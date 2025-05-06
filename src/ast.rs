@@ -1,9 +1,10 @@
 use crate::token::{Literal, TokenKind};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Expr {
     Assign(Box<Assign>),
     Binary(Box<Binary>),
+    Call(Box<Call>),
     Grouping(Box<Grouping>),
     Literal(Literal),
     Unary(Box<Unary>),
@@ -11,61 +12,76 @@ pub enum Expr {
     Variable(String),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Stmt {
     Expr(Expr),
+    Function(Function),
     Var(Var),
+    Return(Option<Expr>),
     Print(Expr),
     If(Box<If>),
     While(Box<While>),
     Block(Vec<Stmt>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Assign {
     pub name: String,
     pub value: Expr,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Binary {
     pub left: Expr,
     pub operator: BinaryOp,
     pub right: Expr,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
+pub struct Call {
+    pub callee: Expr,
+    pub args: Vec<Expr>,
+}
+
+#[derive(Debug, Clone)]
 pub struct Grouping {
     pub expr: Expr,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Unary {
     pub operator: UnaryOp,
     pub right: Expr,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Logical {
     pub left: Expr,
     pub operator: LogicalOp,
     pub right: Expr,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Var {
     pub name: String,
     pub initializer: Option<Expr>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
+pub struct Function {
+    pub name: String,
+    pub args: Vec<String>,
+    pub body: Vec<Stmt>,
+}
+
+#[derive(Debug, Clone)]
 pub struct If {
     pub condition: Expr,
     pub then_stmt: Stmt,
     pub else_stmt: Option<Stmt>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct While {
     pub condition: Expr,
     pub body: Stmt,
@@ -84,6 +100,12 @@ impl Binary {
             operator,
             right,
         }
+    }
+}
+
+impl Call {
+    pub fn new(callee: Expr, args: Vec<Expr>) -> Self {
+        Self { callee, args }
     }
 }
 
@@ -115,6 +137,12 @@ impl Var {
     }
 }
 
+impl Function {
+    pub fn new(name: String, args: Vec<String>, body: Vec<Stmt>) -> Self {
+        Self { name, args, body }
+    }
+}
+
 impl If {
     pub fn new(condition: Expr, then_stmt: Stmt, else_stmt: Option<Stmt>) -> Self {
         Self {
@@ -131,7 +159,7 @@ impl While {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum BinaryOp {
     Minus,
     Plus,
@@ -145,13 +173,13 @@ pub enum BinaryOp {
     BangEqual,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum UnaryOp {
     Bang,
     Minus,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum LogicalOp {
     Or,
     And,

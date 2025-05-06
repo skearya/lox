@@ -1,7 +1,7 @@
 use std::iter::Peekable;
 
 use crate::{
-    ast::{Assign, Binary, Expr, Grouping, If, Logical, Stmt, Unary, Var, While},
+    ast::{Assign, Binary, Call, Expr, Function, Grouping, If, Logical, Stmt, Unary, Var, While},
     error,
     token::{Token, TokenKind},
 };
@@ -95,10 +95,10 @@ impl<'src, I: Iterator<Item = Token<'src>>> Parser<'src, I> {
     }
 
     fn declaration(&mut self) -> Result<Stmt> {
-        let stmt = if self.eat([TokenKind::Var]) {
-            self.var_declaration()
-        } else {
-            self.statement()
+        let stmt = match () {
+            () if self.eat([TokenKind::Fun]) => self.function(true),
+            () if self.eat([TokenKind::Var]) => self.var_declaration(),
+            () => self.statement(),
         };
 
         if stmt.is_err() {
@@ -108,10 +108,71 @@ impl<'src, I: Iterator<Item = Token<'src>>> Parser<'src, I> {
         stmt
     }
 
-    fn var_declaration(&mut self) -> Result<Stmt> {
-        let token = self.consume(TokenKind::Identifier, "Expected variable name")?;
+    fn function(&mut self, function: bool) -> Result<Stmt> {
+        let name = self
+            .consume(
+                TokenKind::Identifier,
+                if function {
+                    "Expected function name"
+                } else {
+                    "Expected method name"
+                },
+            )?
+            .lexeme
+            .to_owned();
 
-        let name = token.lexeme.to_owned();
+        self.consume(
+            TokenKind::LeftParen,
+            if function {
+                "Expect '(' after function name"
+            } else {
+                "Expect '(' after method name"
+            },
+        )?;
+
+        let mut arguments = vec![];
+
+        if !matches!(self.peek(), Some(TokenKind::RightParen)) {
+            arguments.push(
+                self.consume(TokenKind::Identifier, "Expected parameter name")?
+                    .lexeme
+                    .to_owned(),
+            );
+
+            while self.eat([TokenKind::Comma]) {
+                if arguments.len() >= 255 {
+                    // TODO: Better error
+                    eprintln!("Can't have more than 255 parameters");
+                }
+                arguments.push(
+                    self.consume(TokenKind::Identifier, "Expected parameter name")?
+                        .lexeme
+                        .to_owned(),
+                );
+            }
+        }
+
+        self.consume(TokenKind::RightParen, "Expected ')' after parameters")?;
+
+        self.consume(
+            TokenKind::LeftBrace,
+            if function {
+                "Expect '{' before function body"
+            } else {
+                "Expect '{' before method body"
+            },
+        )?;
+
+        let body = self.statements()?;
+
+        Ok(Stmt::Function(Function::new(name, arguments, body)))
+    }
+
+    fn var_declaration(&mut self) -> Result<Stmt> {
+        let name = self
+            .consume(TokenKind::Identifier, "Expected variable name")?
+            .lexeme
+            .to_owned();
 
         let initalizer = if self.eat([TokenKind::Equal]) {
             Some(self.expression()?)
@@ -130,6 +191,7 @@ impl<'src, I: Iterator<Item = Token<'src>>> Parser<'src, I> {
     fn statement(&mut self) -> Result<Stmt> {
         match () {
             () if self.eat([TokenKind::Print]) => self.print_statement(),
+            () if self.eat([TokenKind::Return]) => self.return_statement(),
             () if self.eat([TokenKind::LeftBrace]) => self.block(),
             () if self.eat([TokenKind::If]) => self.if_statement(),
             () if self.eat([TokenKind::While]) => self.while_statement(),
@@ -144,6 +206,21 @@ impl<'src, I: Iterator<Item = Token<'src>>> Parser<'src, I> {
         self.consume(TokenKind::Semicolon, "Expected semicolon after value")?;
 
         Ok(Stmt::Print(expr))
+    }
+
+    fn return_statement(&mut self) -> Result<Stmt> {
+        let expr = if matches!(self.peek(), Some(TokenKind::Semicolon)) {
+            None
+        } else {
+            Some(self.expression()?)
+        };
+
+        self.consume(
+            TokenKind::Semicolon,
+            "Expected semicolon after return value",
+        )?;
+
+        Ok(Stmt::Return(expr))
     }
 
     fn block(&mut self) -> Result<Stmt> {
@@ -356,8 +433,22 @@ impl<'src, I: Iterator<Item = Token<'src>>> Parser<'src, I> {
 
             Ok(Expr::Unary(Box::new(Unary::new(operator, right))))
         } else {
-            self.primary()
+            self.call()
         }
+    }
+
+    fn call(&mut self) -> Result<Expr> {
+        let mut expr = self.primary()?;
+
+        loop {
+            if self.eat([TokenKind::LeftParen]) {
+                expr = self.finish_call(expr)?;
+            } else {
+                break;
+            }
+        }
+
+        Ok(expr)
     }
 
     fn primary(&mut self) -> Result<Expr> {
@@ -416,6 +507,27 @@ impl<'src, I: Iterator<Item = Token<'src>>> Parser<'src, I> {
                 }
             }
         }
+    }
+
+    fn finish_call(&mut self, callee: Expr) -> Result<Expr> {
+        let mut arguments = vec![];
+
+        if !matches!(self.peek(), Some(TokenKind::RightParen)) {
+            arguments.push(self.expression()?);
+
+            while self.eat([TokenKind::Comma]) {
+                if arguments.len() >= 255 {
+                    // TODO: Better error
+                    eprintln!("Can't have more than 255 arguments");
+                }
+
+                arguments.push(self.expression()?);
+            }
+        }
+
+        self.consume(TokenKind::RightParen, "Expected ')' after arguments")?;
+
+        Ok(Expr::Call(Box::new(Call::new(callee, arguments))))
     }
 
     fn statements(&mut self) -> Result<Vec<Stmt>> {

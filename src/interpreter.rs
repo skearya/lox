@@ -1,86 +1,100 @@
-use std::{collections::HashMap, mem};
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    fmt::Debug,
+    rc::Rc,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use crate::{
-    ast::{BinaryOp, Expr, LogicalOp, Stmt, UnaryOp},
+    ast::{BinaryOp, Expr, Function, LogicalOp, Stmt, UnaryOp},
     token::Literal,
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
+pub enum InterpreterError {
+    Return(Value),
+
+    OperandNotNumber,
+    OperandsNotNumber,
+    UndefinedVariable,
+    UncallableCallee,
+    ArgumentArityMismatch,
+}
+
+type Result<T> = core::result::Result<T, InterpreterError>;
+
+#[derive(Debug)]
+pub struct Interpreter {
+    environment: Rc<Environment>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct Environment {
+    enclosing: Option<Rc<Environment>>,
+    values: RefCell<HashMap<String, Value>>,
+}
+
+#[derive(Clone)]
 pub enum Value {
     Nil,
     Bool(bool),
     Number(f64),
     String(String),
+    Function(Rc<dyn Callable>),
 }
 
-#[derive(Debug)]
-pub enum InterpreterError {
-    OperandNotNumber,
-    OperandsNotNumber,
-    UndefinedVariable,
+pub trait Callable {
+    fn arity(&self) -> u8;
+    fn call(&self, interpreter: &mut Interpreter, arguments: Vec<Value>) -> Result<Value>;
 }
 
-type Result<T> = core::result::Result<T, InterpreterError>;
-
-pub struct Interpreter {
-    environment: Environment,
-}
-
-#[derive(Debug, Clone, Default)]
-struct Environment {
-    enclosing: Option<Box<Environment>>,
-    values: HashMap<String, Value>,
-}
-
-impl Environment {
-    fn new() -> Self {
-        Self {
-            enclosing: None,
-            values: HashMap::new(),
-        }
+impl Callable for Function {
+    fn arity(&self) -> u8 {
+        self.args.len() as u8
     }
 
-    fn enclosing(enclosing: Environment) -> Self {
-        Self {
-            enclosing: Some(Box::new(enclosing)),
-            values: HashMap::new(),
+    fn call(&self, interpreter: &mut Interpreter, arguments: Vec<Value>) -> Result<Value> {
+        let environment = Rc::new(Environment::enclosing(Rc::clone(&interpreter.environment)));
+
+        for (name, value) in self.args.iter().zip(arguments) {
+            environment.define(name.clone(), value);
         }
-    }
 
-    fn get(&mut self, name: &str) -> Result<Value> {
-        if let Some(value) = self.values.get(name).cloned() {
-            Ok(value)
-        } else {
-            match self.enclosing.as_mut() {
-                Some(enclosing) => enclosing.get(name),
-                None => Err(InterpreterError::UndefinedVariable),
-            }
-        }
-    }
+        interpreter.block(&self.body, environment)?;
 
-    fn define(&mut self, name: String, value: Value) {
-        self.values.insert(name, value);
-    }
-
-    fn assign(&mut self, name: String, value: Value) -> Result<()> {
-        if self.values.contains_key(&name) {
-            self.values.insert(name, value);
-
-            Ok(())
-        } else {
-            match self.enclosing.as_mut() {
-                Some(enclosing) => enclosing.assign(name, value),
-                None => Err(InterpreterError::UndefinedVariable),
-            }
-        }
+        Ok(Value::Nil)
     }
 }
 
 impl Interpreter {
     pub fn new() -> Self {
-        Self {
-            environment: Environment::new(),
+        struct Clock;
+
+        impl Callable for Clock {
+            fn arity(&self) -> u8 {
+                0
+            }
+
+            fn call(
+                &self,
+                _interpreter: &mut Interpreter,
+                _arguments: Vec<Value>,
+            ) -> Result<Value> {
+                let time = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .expect("time shouldn't go backwards")
+                    .as_secs_f64();
+
+                Ok(Value::Number(time))
+            }
         }
+
+        let environment = Rc::new(Environment::new());
+
+        environment.define("clock".to_owned(), Value::Function(Rc::new(Clock)));
+
+        Self { environment }
     }
 
     pub fn interpret(mut self, stmts: &[Stmt]) {
@@ -140,6 +154,29 @@ impl Interpreter {
                     _ => return Err(InterpreterError::OperandsNotNumber),
                 }
             }
+            Expr::Call(call) => {
+                let callee = self.expr(&call.callee)?;
+
+                if let Value::Function(function) = callee {
+                    if function.arity() != call.args.len() as u8 {
+                        return Err(InterpreterError::ArgumentArityMismatch);
+                    }
+
+                    let arguments = call
+                        .args
+                        .iter()
+                        .map(|arg| self.expr(arg))
+                        .collect::<Result<Vec<Value>>>()?;
+
+                    match function.call(self, arguments) {
+                        Ok(value) => value,
+                        Err(InterpreterError::Return(value)) => value,
+                        Err(other) => return Err(other),
+                    }
+                } else {
+                    return Err(InterpreterError::UncallableCallee);
+                }
+            }
             Expr::Assign(assign) => {
                 let value = self.expr(&assign.value)?;
 
@@ -185,6 +222,12 @@ impl Interpreter {
             Stmt::Expr(expr) => {
                 self.expr(expr)?;
             }
+            Stmt::Function(function) => {
+                self.environment.define(
+                    function.name.clone(),
+                    Value::Function(Rc::new(function.clone())),
+                );
+            }
             Stmt::Var(var) => {
                 let value = match &var.initializer {
                     Some(initializer) => self.expr(initializer)?,
@@ -193,9 +236,21 @@ impl Interpreter {
 
                 self.environment.define(var.name.clone(), value);
             }
-            Stmt::Print(expr) => {
-                println!("{:?}", self.expr(expr)?);
+            Stmt::Return(expr) => {
+                let value = match expr {
+                    Some(expr) => self.expr(expr)?,
+                    None => Value::Nil,
+                };
+
+                return Err(InterpreterError::Return(value));
             }
+            Stmt::Print(expr) => match self.expr(expr)? {
+                Value::Nil => println!("nil"),
+                Value::Bool(bool) => println!("{bool}"),
+                Value::Number(num) => println!("{num}"),
+                Value::String(str) => println!("{str}"),
+                Value::Function(_callable) => println!("<fn>"),
+            },
             Stmt::If(if_stmt) => {
                 let condition = self.expr(&if_stmt.condition)?;
 
@@ -210,22 +265,88 @@ impl Interpreter {
                     self.stmt(&while_stmt.body)?;
                 }
             }
-            Stmt::Block(block) => {
-                self.environment = Environment::enclosing(mem::take(&mut self.environment));
-
-                for stmt in block {
-                    self.stmt(stmt)?;
-                }
-
-                self.environment = mem::take(
-                    self.environment
-                        .enclosing
-                        .as_mut()
-                        .expect("should have parent environment"),
-                );
+            Stmt::Block(stmts) => {
+                self.block(
+                    stmts,
+                    Rc::new(Environment::enclosing(Rc::clone(&self.environment))),
+                )?;
             }
-        };
+        }
 
         Ok(())
+    }
+
+    fn block(&mut self, stmts: &[Stmt], environment: Rc<Environment>) -> Result<()> {
+        let current = Rc::clone(&self.environment);
+
+        self.environment = environment;
+
+        for stmt in stmts {
+            if let Err(err) = self.stmt(stmt) {
+                self.environment = current;
+
+                return Err(err);
+            }
+        }
+
+        self.environment = current;
+
+        Ok(())
+    }
+}
+
+impl Environment {
+    fn new() -> Self {
+        Self {
+            enclosing: None,
+            values: RefCell::new(HashMap::new()),
+        }
+    }
+
+    fn enclosing(enclosing: Rc<Environment>) -> Self {
+        Self {
+            enclosing: Some(enclosing),
+            values: RefCell::new(HashMap::new()),
+        }
+    }
+
+    fn get(&self, name: &str) -> Result<Value> {
+        if let Some(value) = self.values.borrow_mut().get(name).cloned() {
+            Ok(value)
+        } else {
+            match &self.enclosing {
+                Some(enclosing) => enclosing.get(name),
+                None => Err(InterpreterError::UndefinedVariable),
+            }
+        }
+    }
+
+    fn define(&self, name: String, value: Value) {
+        self.values.borrow_mut().insert(name, value);
+    }
+
+    fn assign(&self, name: String, value: Value) -> Result<()> {
+        if self.values.borrow().contains_key(&name) {
+            self.values.borrow_mut().insert(name, value);
+
+            Ok(())
+        } else {
+            match &self.enclosing {
+                Some(enclosing) => enclosing.assign(name, value),
+                None => Err(InterpreterError::UndefinedVariable),
+            }
+        }
+    }
+}
+
+impl Debug for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Nil => write!(f, "Nil"),
+            Self::Bool(bool) => f.debug_tuple("Bool").field(bool).finish(),
+            Self::Number(num) => f.debug_tuple("Number").field(num).finish(),
+            Self::String(str) => f.debug_tuple("String").field(str).finish(),
+            Self::Function(_function) => write!(f, "<fn>"),
+        }
     }
 }

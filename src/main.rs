@@ -16,6 +16,6 @@ fn main() {
     let parser = Parser::new(source, scanner);
 
     if let Some(stmts) = parser.parse() {
-        Interpreter::new().interpret(&stmts)
+        Interpreter::new().interpret(&stmts);
     }
 }

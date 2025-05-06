@@ -78,7 +78,7 @@ impl<'src> Scanner<'src> {
             ' ' | '\r' | '\t' | '\n' => return None,
             '"' => self.string()?,
             '0'..='9' => self.number()?,
-            'a'..='z' | 'A'..='Z' | '_' => self.identifier()?,
+            'a'..='z' | 'A'..='Z' | '_' => self.identifier(),
             unexpected => {
                 eprintln!("Unexpected character: {unexpected}");
                 return None;
@@ -98,7 +98,7 @@ impl<'src> Scanner<'src> {
         loop {
             match self.next() {
                 Some('"') => break,
-                Some(_) => continue,
+                Some(_) => {}
                 None => {
                     eprintln!("Unterminated string");
                     return None;
@@ -133,15 +133,12 @@ impl<'src> Scanner<'src> {
         Some(TokenKind::Literal(data))
     }
 
-    fn identifier(&mut self) -> Option<TokenKind> {
+    fn identifier(&mut self) -> TokenKind {
         while matches!(self.peek(), Some('a'..='z' | 'A'..='Z' | '_')) {
             self.next();
         }
 
-        let kind = Scanner::keyword(&self.source[self.start..self.current])
-            .unwrap_or(TokenKind::Identifier);
-
-        Some(kind)
+        Scanner::keyword(&self.source[self.start..self.current]).unwrap_or(TokenKind::Identifier)
     }
 
     fn keyword(str: &str) -> Option<TokenKind> {

@@ -1,13 +1,13 @@
-var x = 2;
+fun makeCounter() {
+  var i = 0;
+  fun count() {
+    i = i + 1;
+    print i;
+  }
 
-if (x == 2) {
-    print x;
-
-    var y = 0;
-    while (y < 5) {
-        y = y + 1;
-        print y;
-    }
+  return count;
 }
 
-print "bruh";
+var counter = makeCounter();
+counter(); // "1".
+counter(); // "2".
