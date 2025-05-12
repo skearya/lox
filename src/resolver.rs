@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use crate::ast::{Expr, Function, Stmt};
 
+#[derive(Debug)]
 pub struct Resolver {
     errored: bool,
     // Indicates if a variable is declared (false) or defined (true)
@@ -11,6 +12,13 @@ pub struct Resolver {
     // The key of this map is a raw pointer which should be fine as every Expr is heap allocated and never mutated/moved
     // The raw pointer should never be dereferenced and should only be used for comparisons
     locals: HashMap<*const Expr, usize>,
+    function: FunctionType,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum FunctionType {
+    None,
+    Function,
 }
 
 impl Resolver {
@@ -19,6 +27,7 @@ impl Resolver {
             errored: false,
             scopes: Vec::new(),
             locals: HashMap::new(),
+            function: FunctionType::None,
         }
     }
 
@@ -80,7 +89,7 @@ impl Resolver {
             Stmt::Function(function) => {
                 self.define(function.name.clone());
 
-                self.resolve_function(function);
+                self.resolve_function(function, FunctionType::Function);
             }
             Stmt::Var(var) => {
                 self.declare(var.name.clone());
@@ -92,6 +101,12 @@ impl Resolver {
                 self.define(var.name.clone());
             }
             Stmt::Return(expr) => {
+                if let FunctionType::None = self.function {
+                    self.errored = true;
+                    // TODO: Better error message
+                    eprintln!("Can't return from top-level code");
+                }
+
                 if let Some(expr) = expr {
                     self.expr(expr);
                 }
@@ -123,6 +138,12 @@ impl Resolver {
 
     fn declare(&mut self, name: String) {
         if let Some(scope) = self.scopes.last_mut() {
+            if scope.contains_key(&name) {
+                self.errored = true;
+                // TODO: Better error message
+                eprintln!("Already a variable with this name in this scope");
+            }
+
             scope.insert(name, false);
         }
     }
@@ -142,7 +163,10 @@ impl Resolver {
         }
     }
 
-    fn resolve_function(&mut self, function: &Function) {
+    fn resolve_function(&mut self, function: &Function, kind: FunctionType) {
+        let prev = self.function;
+        self.function = kind;
+
         self.scopes.push(HashMap::new());
 
         for param in &function.args {
@@ -154,5 +178,7 @@ impl Resolver {
         }
 
         self.scopes.pop();
+
+        self.function = prev;
     }
 }
