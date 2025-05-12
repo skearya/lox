@@ -8,8 +8,8 @@ use crate::{
 
 #[derive(Debug)]
 pub struct Parser<'src, I: Iterator<Item = Token<'src>>> {
-    pub src: &'src str,
     pub errored: bool,
+    pub src: &'src str,
     tokens: Peekable<I>,
 }
 
@@ -27,9 +27,9 @@ pub struct Synchronize;
 impl<'src, I: Iterator<Item = Token<'src>>> Parser<'src, I> {
     pub fn new(src: &'src str, tokens: I) -> Self {
         Self {
+            errored: false,
             src,
             tokens: tokens.peekable(),
-            errored: false,
         }
     }
 
@@ -159,7 +159,7 @@ impl<'src, I: Iterator<Item = Token<'src>>> Parser<'src, I> {
             .lexeme
             .to_owned();
 
-        let initalizer = if self.eat([TokenKind::Equal]) {
+        let initializer = if self.eat([TokenKind::Equal]) {
             Some(self.expression()?)
         } else {
             None
@@ -170,7 +170,7 @@ impl<'src, I: Iterator<Item = Token<'src>>> Parser<'src, I> {
             "Expected semicolon after var declaration",
         )?;
 
-        Ok(Stmt::Var(Var::new(name, initalizer)))
+        Ok(Stmt::Var(Var::new(name, initializer)))
     }
 
     fn statement(&mut self) -> Result<Stmt> {
@@ -289,8 +289,8 @@ impl<'src, I: Iterator<Item = Token<'src>>> Parser<'src, I> {
             body = Stmt::While(Box::new(While::new(condition, body)));
         }
 
-        if let Some(initalizer) = initializer {
-            body = Stmt::Block(vec![initalizer, body]);
+        if let Some(initializer) = initializer {
+            body = Stmt::Block(vec![initializer, body]);
         }
 
         Ok(body)

@@ -1,20 +1,10 @@
-fun makeCounter() {
-  var i = 0;
-
-  while (true) {
-    if (true) {
-      break;
-    }
+var a = "global";
+{
+  fun showA() {
+    print a;
   }
 
-  fun count() {
-    i = i + 1;
-    print i;
-  }
-
-  return count;
+  showA();
+  var a = "block";
+  showA();
 }
-
-var counter = makeCounter();
-counter();
-counter();

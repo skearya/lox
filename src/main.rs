@@ -1,22 +1,29 @@
 use interpreter::Interpreter;
 use parser::Parser;
+use resolver::Resolver;
 use scanner::Scanner;
 
 mod ast;
 mod error;
+mod global;
 mod interpreter;
 mod parser;
+mod resolver;
 mod scanner;
 mod token;
-mod global;
 
 fn main() {
     let source = include_str!("sample.lox");
 
     let scanner = Scanner::new(source);
-    let parser = Parser::new(source, scanner);
 
-    if let Some(stmts) = parser.parse() {
-        Interpreter::new().interpret(&stmts);
-    }
+    let Some(stmts) = Parser::new(source, scanner).parse() else {
+        return;
+    };
+
+    let Some(locals) = Resolver::new().resolve(&stmts) else {
+        return;
+    };
+
+    Interpreter::new(locals).interpret(&stmts);
 }

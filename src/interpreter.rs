@@ -21,6 +21,9 @@ pub type Result<T> = core::result::Result<T, InterpreterError>;
 
 #[derive(Debug)]
 pub struct Interpreter {
+    // Resolved variable lookup depth, more info in `resolver.rs`
+    locals: HashMap<*const Expr, usize>,
+    globals: Rc<Environment>,
     environment: Rc<Environment>,
 }
 
@@ -51,12 +54,16 @@ struct LoxFunction {
 }
 
 impl Interpreter {
-    pub fn new() -> Self {
-        let environment = Rc::new(Environment::new());
+    pub fn new(locals: HashMap<*const Expr, usize>) -> Self {
+        let globals = Rc::new(Environment::new());
 
-        register_globals(&environment);
+        register_globals(&globals);
 
-        Self { environment }
+        Self {
+            locals,
+            environment: Rc::clone(&globals),
+            globals,
+        }
     }
 
     pub fn interpret(mut self, stmts: &[Stmt]) {
@@ -142,8 +149,15 @@ impl Interpreter {
             Expr::Assign(assign) => {
                 let value = self.expr(&assign.value)?;
 
-                self.environment
-                    .assign(assign.name.clone(), value.clone())?;
+                let distance = self.locals.get(&(expr as *const Expr));
+
+                match distance {
+                    Some(distance) => {
+                        self.environment
+                            .assign_at(&assign.name, value.clone(), *distance)?
+                    }
+                    None => self.globals.assign(&assign.name, value.clone())?,
+                }
 
                 value
             }
@@ -173,7 +187,14 @@ impl Interpreter {
                     _ => self.expr(&logical.right)?,
                 }
             }
-            Expr::Variable(var) => self.environment.get(var)?,
+            Expr::Variable(var) => {
+                let distance = self.locals.get(&(expr as *const Expr));
+
+                match distance {
+                    Some(distance) => self.environment.get_at(var, *distance)?,
+                    None => self.globals.get(var)?,
+                }
+            }
         };
 
         Ok(value)
@@ -276,31 +297,45 @@ impl Environment {
     }
 
     pub fn get(&self, name: &str) -> Result<Value> {
-        if let Some(value) = self.values.borrow_mut().get(name).cloned() {
-            Ok(value)
-        } else {
-            match &self.enclosing {
-                Some(enclosing) => enclosing.get(name),
-                None => Err(InterpreterError::UndefinedVariable),
-            }
+        match self.values.borrow().get(name).cloned() {
+            Some(value) => Ok(value),
+            None => Err(InterpreterError::UndefinedVariable),
         }
+    }
+
+    pub fn get_at(&self, name: &str, distance: usize) -> Result<Value> {
+        self.ancestor(distance).get(name)
     }
 
     pub fn define(&self, name: String, value: Value) {
         self.values.borrow_mut().insert(name, value);
     }
 
-    pub fn assign(&self, name: String, value: Value) -> Result<()> {
-        if self.values.borrow().contains_key(&name) {
-            self.values.borrow_mut().insert(name, value);
-
-            Ok(())
-        } else {
-            match &self.enclosing {
-                Some(enclosing) => enclosing.assign(name, value),
-                None => Err(InterpreterError::UndefinedVariable),
+    pub fn assign(&self, name: &str, value: Value) -> Result<()> {
+        match self.values.borrow_mut().get_mut(name) {
+            Some(var) => {
+                *var = value;
+                Ok(())
             }
+            None => Err(InterpreterError::UndefinedVariable),
         }
+    }
+
+    pub fn assign_at(&self, name: &str, value: Value, distance: usize) -> Result<()> {
+        self.ancestor(distance).assign(name, value)
+    }
+
+    fn ancestor(&self, distance: usize) -> Rc<Environment> {
+        let mut environment = Rc::new(self.clone());
+
+        for _ in 0..distance {
+            environment = self
+                .enclosing
+                .clone()
+                .expect("variable lookup distance should've been right");
+        }
+
+        environment
     }
 }
 
