@@ -5,16 +5,20 @@ pub enum Expr {
     Assign(Box<Assign>),
     Binary(Box<Binary>),
     Call(Box<Call>),
+    Get(Box<Get>),
     Grouping(Box<Grouping>),
     Literal(Literal),
-    Unary(Box<Unary>),
     Logical(Box<Logical>),
+    Set(Box<Set>),
+    This,
+    Unary(Box<Unary>),
     Variable(String),
 }
 
 #[derive(Debug, Clone)]
 pub enum Stmt {
     Expr(Expr),
+    Class(Class),
     Function(Function),
     Var(Var),
     Return(Option<Expr>),
@@ -44,14 +48,14 @@ pub struct Call {
 }
 
 #[derive(Debug, Clone)]
-pub struct Grouping {
-    pub expr: Expr,
+pub struct Get {
+    pub object: Expr,
+    pub name: String,
 }
 
 #[derive(Debug, Clone)]
-pub struct Unary {
-    pub operator: UnaryOp,
-    pub right: Expr,
+pub struct Grouping {
+    pub expr: Expr,
 }
 
 #[derive(Debug, Clone)]
@@ -62,9 +66,28 @@ pub struct Logical {
 }
 
 #[derive(Debug, Clone)]
+pub struct Set {
+    pub object: Expr,
+    pub name: String,
+    pub value: Expr,
+}
+
+#[derive(Debug, Clone)]
+pub struct Unary {
+    pub operator: UnaryOp,
+    pub right: Expr,
+}
+
+#[derive(Debug, Clone)]
 pub struct Var {
     pub name: String,
     pub initializer: Option<Expr>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Class {
+    pub name: String,
+    pub methods: Vec<Function>,
 }
 
 #[derive(Debug, Clone)]
@@ -109,15 +132,15 @@ impl Call {
     }
 }
 
-impl Grouping {
-    pub fn new(expr: Expr) -> Self {
-        Self { expr }
+impl Get {
+    pub fn new(object: Expr, name: String) -> Self {
+        Self { object, name }
     }
 }
 
-impl Unary {
-    pub fn new(operator: UnaryOp, right: Expr) -> Self {
-        Self { operator, right }
+impl Grouping {
+    pub fn new(expr: Expr) -> Self {
+        Self { expr }
     }
 }
 
@@ -131,9 +154,31 @@ impl Logical {
     }
 }
 
+impl Set {
+    pub fn new(object: Expr, name: String, value: Expr) -> Self {
+        Self {
+            object,
+            name,
+            value,
+        }
+    }
+}
+
+impl Unary {
+    pub fn new(operator: UnaryOp, right: Expr) -> Self {
+        Self { operator, right }
+    }
+}
+
 impl Var {
     pub fn new(name: String, initializer: Option<Expr>) -> Self {
         Self { name, initializer }
+    }
+}
+
+impl Class {
+    pub fn new(name: String, methods: Vec<Function>) -> Self {
+        Self { name, methods }
     }
 }
 

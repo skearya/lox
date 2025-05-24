@@ -13,12 +13,21 @@ pub struct Resolver {
     // The raw pointer should never be dereferenced and should only be used for comparisons
     locals: HashMap<*const Expr, usize>,
     function: FunctionType,
+    class: ClassType,
 }
 
 #[derive(Debug, Clone, Copy)]
 enum FunctionType {
     None,
     Function,
+    Initializer,
+    Method,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ClassType {
+    None,
+    Class,
 }
 
 impl Resolver {
@@ -28,6 +37,7 @@ impl Resolver {
             scopes: Vec::new(),
             locals: HashMap::new(),
             function: FunctionType::None,
+            class: ClassType::Class,
         }
     }
 
@@ -60,13 +70,30 @@ impl Resolver {
                     self.expr(arg);
                 }
             }
+            Expr::Get(get) => {
+                self.expr(&get.object);
+            }
             Expr::Grouping(grouping) => self.expr(&grouping.expr),
             Expr::Literal(_literal) => {}
-            Expr::Unary(unary) => self.expr(&unary.right),
             Expr::Logical(logical) => {
                 self.expr(&logical.left);
                 self.expr(&logical.right);
             }
+            Expr::Set(set) => {
+                self.expr(&set.object);
+                self.expr(&set.value);
+            }
+            Expr::This => {
+                if matches!(self.class, ClassType::None) {
+                    self.errored = true;
+                    // TODO: Better error message
+                    eprintln!("Can't use 'this' outside of a class");
+                    return;
+                }
+
+                self.resolve_local(expr, "this");
+            }
+            Expr::Unary(unary) => self.expr(&unary.right),
             Expr::Variable(var) => {
                 if let Some(scope) = self.scopes.last() {
                     if let Some(defined) = scope.get(var) {
@@ -86,7 +113,30 @@ impl Resolver {
     fn stmt(&mut self, stmt: &Stmt) {
         match stmt {
             Stmt::Expr(expr) => self.expr(expr),
+            Stmt::Class(class) => {
+                let prev = self.class;
+                self.class = ClassType::Class;
+
+                self.scopes.push(HashMap::from([("this".to_owned(), true)]));
+
+                self.declare(class.name.clone());
+                self.define(class.name.clone());
+
+                for method in &class.methods {
+                    let declaration = if method.name == "init" {
+                        FunctionType::Initializer
+                    } else {
+                        FunctionType::Method
+                    };
+
+                    self.resolve_function(method, declaration);
+                }
+
+                self.scopes.pop();
+                self.class = prev;
+            }
             Stmt::Function(function) => {
+                self.declare(function.name.clone());
                 self.define(function.name.clone());
 
                 self.resolve_function(function, FunctionType::Function);
@@ -108,6 +158,11 @@ impl Resolver {
                 }
 
                 if let Some(expr) = expr {
+                    if matches!(self.function, FunctionType::Initializer) {
+                        // TODO: Better error message
+                        eprintln!("Can't return a value from an initializer");
+                    }
+
                     self.expr(expr);
                 }
             }
@@ -157,6 +212,7 @@ impl Resolver {
     fn resolve_local(&mut self, expr: &Expr, name: &str) {
         for (i, scope) in self.scopes.iter().rev().enumerate() {
             if scope.contains_key(name) {
+                dbg!(expr as *const Expr, name, i);
                 self.locals.insert(expr as *const Expr, i);
                 return;
             }

@@ -1,10 +1,12 @@
-var a = "global";
-{
-  fun showA() {
-    print a;
-  }
+class Thing {
+  getCallback() {
+    fun localFunction() {
+      print this;
+    }
 
-  showA();
-  var a = "block";
-  showA();
+    return localFunction;
+  }
 }
+
+var callback = Thing().getCallback();
+callback();

@@ -1,7 +1,10 @@
 use std::iter::Peekable;
 
 use crate::{
-    ast::{Assign, Binary, Call, Expr, Function, Grouping, If, Logical, Stmt, Unary, Var, While},
+    ast::{
+        Assign, Binary, Call, Class, Expr, Function, Get, Grouping, If, Logical, Set, Stmt, Unary,
+        Var, While,
+    },
     error,
     token::{Token, TokenKind},
 };
@@ -96,7 +99,8 @@ impl<'src, I: Iterator<Item = Token<'src>>> Parser<'src, I> {
 
     fn declaration(&mut self) -> Result<Stmt> {
         let stmt = match () {
-            () if self.eat([TokenKind::Fun]) => self.function("function"),
+            () if self.eat([TokenKind::Class]) => self.class_declaration(),
+            () if self.eat([TokenKind::Fun]) => self.function("function").map(Stmt::Function),
             () if self.eat([TokenKind::Var]) => self.var_declaration(),
             () => self.statement(),
         };
@@ -108,7 +112,26 @@ impl<'src, I: Iterator<Item = Token<'src>>> Parser<'src, I> {
         stmt
     }
 
-    fn function(&mut self, kind: &str) -> Result<Stmt> {
+    fn class_declaration(&mut self) -> Result<Stmt> {
+        let name = self
+            .consume(TokenKind::Identifier, "Expected class name")?
+            .lexeme
+            .to_owned();
+
+        self.consume(TokenKind::LeftBrace, "Expected '{' before class body")?;
+
+        let mut methods = vec![];
+
+        while !matches!(self.peek(), Some(TokenKind::RightBrace)) {
+            methods.push(self.function("method")?);
+        }
+
+        self.consume(TokenKind::RightBrace, "Expected '}' after class body")?;
+
+        Ok(Stmt::Class(Class::new(name, methods)))
+    }
+
+    fn function(&mut self, kind: &str) -> Result<Function> {
         let name = self
             .consume(TokenKind::Identifier, &format!("Expected {kind} name"))?
             .lexeme
@@ -116,7 +139,7 @@ impl<'src, I: Iterator<Item = Token<'src>>> Parser<'src, I> {
 
         self.consume(
             TokenKind::LeftParen,
-            &format!("Expect '(' after {kind} name"),
+            &format!("Expected '(' after {kind} name"),
         )?;
 
         let mut arguments = vec![];
@@ -150,7 +173,7 @@ impl<'src, I: Iterator<Item = Token<'src>>> Parser<'src, I> {
 
         let body = self.statements()?;
 
-        Ok(Stmt::Function(Function::new(name, arguments, body)))
+        Ok(Function::new(name, arguments, body))
     }
 
     fn var_declaration(&mut self) -> Result<Stmt> {
@@ -314,14 +337,16 @@ impl<'src, I: Iterator<Item = Token<'src>>> Parser<'src, I> {
         if self.eat([TokenKind::Equal]) {
             let value = self.assignment()?;
 
-            if let Expr::Variable(name) = expr {
-                Ok(Expr::Assign(Box::new(Assign::new(name, value))))
-            } else {
-                // TODO: Better invalid assignment target error
-                self.errored = true;
-                eprintln!("Invalid assignment target: {expr:#?}");
+            match expr {
+                Expr::Variable(name) => Ok(Expr::Assign(Box::new(Assign::new(name, value)))),
+                Expr::Get(get) => Ok(Expr::Set(Box::new(Set::new(get.object, get.name, value)))),
+                _ => {
+                    // TODO: Better invalid assignment target error
+                    self.errored = true;
+                    eprintln!("Invalid assignment target: {expr:#?}");
 
-                Ok(expr)
+                    Ok(expr)
+                }
             }
         } else {
             Ok(expr)
@@ -428,6 +453,13 @@ impl<'src, I: Iterator<Item = Token<'src>>> Parser<'src, I> {
         loop {
             if self.eat([TokenKind::LeftParen]) {
                 expr = self.finish_call(expr)?;
+            } else if self.eat([TokenKind::Dot]) {
+                let name = self
+                    .consume(TokenKind::Identifier, "Expected property name after '.'")?
+                    .lexeme
+                    .to_owned();
+
+                expr = Expr::Get(Box::new(Get::new(expr, name)))
             } else {
                 break;
             }
@@ -448,6 +480,10 @@ impl<'src, I: Iterator<Item = Token<'src>>> Parser<'src, I> {
             };
 
             return Ok(Expr::Literal(literal));
+        }
+
+        if self.eat([TokenKind::This]) {
+            return Ok(Expr::This);
         }
 
         if let Some(token) = self.take([TokenKind::Identifier]) {
