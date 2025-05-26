@@ -37,7 +37,7 @@ impl Resolver {
             scopes: Vec::new(),
             locals: HashMap::new(),
             function: FunctionType::None,
-            class: ClassType::Class,
+            class: ClassType::None,
         }
     }
 
@@ -117,19 +117,20 @@ impl Resolver {
                 let prev = self.class;
                 self.class = ClassType::Class;
 
-                self.scopes.push(HashMap::from([("this".to_owned(), true)]));
-
                 self.declare(class.name.clone());
                 self.define(class.name.clone());
 
-                for method in &class.methods {
-                    let declaration = if method.name == "init" {
-                        FunctionType::Initializer
-                    } else {
-                        FunctionType::Method
-                    };
+                self.scopes.push(HashMap::from([("this".to_owned(), true)]));
 
-                    self.resolve_function(method, declaration);
+                for method in &class.methods {
+                    self.resolve_function(
+                        method,
+                        if method.name == "init" {
+                            FunctionType::Initializer
+                        } else {
+                            FunctionType::Method
+                        },
+                    );
                 }
 
                 self.scopes.pop();
@@ -151,7 +152,7 @@ impl Resolver {
                 self.define(var.name.clone());
             }
             Stmt::Return(expr) => {
-                if let FunctionType::None = self.function {
+                if matches!(self.function, FunctionType::None) {
                     self.errored = true;
                     // TODO: Better error message
                     eprintln!("Can't return from top-level code");
@@ -212,7 +213,6 @@ impl Resolver {
     fn resolve_local(&mut self, expr: &Expr, name: &str) {
         for (i, scope) in self.scopes.iter().rev().enumerate() {
             if scope.contains_key(name) {
-                dbg!(expr as *const Expr, name, i);
                 self.locals.insert(expr as *const Expr, i);
                 return;
             }
@@ -226,6 +226,7 @@ impl Resolver {
         self.scopes.push(HashMap::new());
 
         for param in &function.args {
+            self.declare(param.clone());
             self.define(param.clone());
         }
 
@@ -234,7 +235,6 @@ impl Resolver {
         }
 
         self.scopes.pop();
-
         self.function = prev;
     }
 }

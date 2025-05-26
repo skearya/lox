@@ -3,7 +3,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use crate::interpreter::{self, Callable, Environment, Interpreter, Value};
+use crate::interpreter::{Callable, Environment, Interpreter, InterpreterError, Value};
 
 pub fn register_globals(environment: &Environment) {
     environment.define("clock".to_owned(), Value::Function(Rc::new(Clock)));
@@ -11,16 +11,16 @@ pub fn register_globals(environment: &Environment) {
 
 struct Clock;
 
-impl Callable for Clock {
+impl<'ast> Callable<'ast> for Clock {
     fn arity(&self) -> u8 {
         0
     }
 
     fn call(
         &self,
-        _interpreter: &mut Interpreter,
-        _arguments: Vec<Value>,
-    ) -> interpreter::Result<Value> {
+        _interpreter: &mut Interpreter<'ast>,
+        _arguments: Vec<Value<'ast>>,
+    ) -> Result<Value<'ast>, InterpreterError<'ast>> {
         let time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("time shouldn't go backwards")
