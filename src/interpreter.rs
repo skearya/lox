@@ -403,7 +403,7 @@ impl<'ast> Environment<'ast> {
     }
 
     pub fn get_at(
-        &self,
+        self: &Rc<Self>,
         name: &str,
         distance: usize,
     ) -> Result<Value<'ast>, InterpreterError<'ast>> {
@@ -425,7 +425,7 @@ impl<'ast> Environment<'ast> {
     }
 
     pub fn assign_at(
-        &self,
+        self: &Rc<Self>,
         name: &str,
         value: Value<'ast>,
         distance: usize,
@@ -433,8 +433,8 @@ impl<'ast> Environment<'ast> {
         self.ancestor(distance).assign(name, value)
     }
 
-    fn ancestor(&self, distance: usize) -> Rc<Environment<'ast>> {
-        let mut environment = Rc::new(self.clone());
+    fn ancestor(self: &Rc<Self>, distance: usize) -> Rc<Environment<'ast>> {
+        let mut environment = Rc::clone(self);
 
         for _ in 0..distance {
             environment = environment
