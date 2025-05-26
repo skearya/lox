@@ -371,10 +371,6 @@ impl<'ast> Interpreter<'ast> {
     ) -> Result<Value<'ast>, InterpreterError<'ast>> {
         let distance = self.locals.get(&(expr as *const Expr));
 
-        if name == "this" {
-            println!("distance: {distance:#?}");
-        }
-
         let value = match distance {
             Some(distance) => self.environment.get_at(name, *distance)?,
             None => self.globals.get(name)?,
@@ -441,14 +437,10 @@ impl<'ast> Environment<'ast> {
         let mut environment = Rc::new(self.clone());
 
         for _ in 0..distance {
-            environment = self
+            environment = environment
                 .enclosing
                 .clone()
                 .expect("variable lookup distance should've been right");
-
-            dbg!(&environment);
-
-            // TODO: BROKEN!!!
         }
 
         environment
