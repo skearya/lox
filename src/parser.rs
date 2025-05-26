@@ -459,7 +459,7 @@ impl<'src, I: Iterator<Item = Token<'src>>> Parser<'src, I> {
                     .lexeme
                     .to_owned();
 
-                expr = Expr::Get(Box::new(Get::new(expr, name)))
+                expr = Expr::Get(Box::new(Get::new(expr, name)));
             } else {
                 break;
             }

@@ -118,12 +118,12 @@ impl<'ast> Interpreter<'ast> {
             Expr::Assign(assign) => {
                 let value = self.expr(&assign.value)?;
 
-                let distance = self.locals.get(&(expr as *const Expr));
+                let distance = self.locals.get(&std::ptr::from_ref(expr));
 
                 match distance {
                     Some(distance) => {
                         self.environment
-                            .assign_at(&assign.name, value.clone(), *distance)?
+                            .assign_at(&assign.name, value.clone(), *distance)?;
                     }
                     None => self.globals.assign(&assign.name, value.clone())?,
                 }
@@ -161,25 +161,8 @@ impl<'ast> Interpreter<'ast> {
             Expr::Call(call) => {
                 let callee = self.expr(&call.callee)?;
 
-                match callee {
-                    Value::Class(class) => {
-                        if class.arity() != call.args.len() as u8 {
-                            return Err(InterpreterError::ArgumentArityMismatch);
-                        }
-
-                        let arguments = call
-                            .args
-                            .iter()
-                            .map(|arg| self.expr(arg))
-                            .collect::<Result<Vec<Value>, InterpreterError>>()?;
-
-                        match class.call(self, arguments) {
-                            Ok(value) => value,
-                            Err(InterpreterError::Return(value)) => value,
-                            Err(other) => return Err(other),
-                        }
-                    }
-                    Value::Function(function) => {
+                let mut callable =
+                    |function: &dyn Callable<'ast>| -> Result<Value<'ast>, InterpreterError<'ast>> {
                         if function.arity() != call.args.len() as u8 {
                             return Err(InterpreterError::ArgumentArityMismatch);
                         }
@@ -191,11 +174,14 @@ impl<'ast> Interpreter<'ast> {
                             .collect::<Result<Vec<Value>, InterpreterError>>()?;
 
                         match function.call(self, arguments) {
-                            Ok(value) => value,
-                            Err(InterpreterError::Return(value)) => value,
-                            Err(other) => return Err(other),
+                            Ok(value) | Err(InterpreterError::Return(value)) => Ok(value),
+                            Err(other) => Err(other),
                         }
-                    }
+                    };
+
+                match callee {
+                    Value::Class(class) => callable(&class)?,
+                    Value::Function(function) => callable(function.as_ref())?,
                     _ => return Err(InterpreterError::UncallableCallee),
                 }
             }
@@ -250,7 +236,7 @@ impl<'ast> Interpreter<'ast> {
                     (UnaryOp::Bang, value) => Value::Bool(!Interpreter::is_truthy(&value)),
                 }
             }
-            Expr::Variable(var) => self.lookup(&var, expr)?,
+            Expr::Variable(var) => self.lookup(var, expr)?,
         };
 
         Ok(value)
@@ -369,7 +355,7 @@ impl<'ast> Interpreter<'ast> {
         name: &str,
         expr: &'ast Expr,
     ) -> Result<Value<'ast>, InterpreterError<'ast>> {
-        let distance = self.locals.get(&(expr as *const Expr));
+        let distance = self.locals.get(&std::ptr::from_ref(expr));
 
         let value = match distance {
             Some(distance) => self.environment.get_at(name, *distance)?,
@@ -501,7 +487,7 @@ impl<'ast> LoxFunction<'ast> {
         environment.define("this".to_owned(), Value::Instance(instance));
 
         Self {
-            declaration: &self.declaration,
+            declaration: self.declaration,
             closure: environment,
             initializer: self.initializer,
         }
@@ -521,7 +507,7 @@ impl<'ast> Callable<'ast> for Rc<LoxClass<'ast>> {
         interpreter: &mut Interpreter<'ast>,
         arguments: Vec<Value<'ast>>,
     ) -> Result<Value<'ast>, InterpreterError<'ast>> {
-        let instance = Rc::new(LoxInstance::new(Rc::clone(&self)));
+        let instance = Rc::new(LoxInstance::new(Rc::clone(self)));
 
         if let Some(initalizer) = self.method("init") {
             initalizer
@@ -562,7 +548,7 @@ impl<'ast> Callable<'ast> for LoxFunction<'ast> {
     }
 }
 
-impl<'ast> Debug for Value<'ast> {
+impl Debug for Value<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Nil => write!(f, "Nil"),

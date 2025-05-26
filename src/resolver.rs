@@ -100,7 +100,7 @@ impl Resolver {
                         if !*defined {
                             self.errored = true;
                             // TODO: Better error message
-                            eprintln!("Can't read local variable in its own initializer")
+                            eprintln!("Can't read local variable in its own initializer");
                         }
                     }
                 }
@@ -112,7 +112,7 @@ impl Resolver {
 
     fn stmt(&mut self, stmt: &Stmt) {
         match stmt {
-            Stmt::Expr(expr) => self.expr(expr),
+            Stmt::Expr(expr) | Stmt::Print(expr) => self.expr(expr),
             Stmt::Class(class) => {
                 let prev = self.class;
                 self.class = ClassType::Class;
@@ -167,7 +167,6 @@ impl Resolver {
                     self.expr(expr);
                 }
             }
-            Stmt::Print(expr) => self.expr(expr),
             Stmt::If(if_stmt) => {
                 self.expr(&if_stmt.condition);
                 self.stmt(&if_stmt.then_stmt);
@@ -213,7 +212,7 @@ impl Resolver {
     fn resolve_local(&mut self, expr: &Expr, name: &str) {
         for (i, scope) in self.scopes.iter().rev().enumerate() {
             if scope.contains_key(name) {
-                self.locals.insert(expr as *const Expr, i);
+                self.locals.insert(std::ptr::from_ref(expr), i);
                 return;
             }
         }
