@@ -8,8 +8,6 @@ pub struct Scanner<'src> {
     line: usize,
 }
 
-// TODO: don't panic on error
-
 impl<'src> Scanner<'src> {
     pub fn new(source: &'src str) -> Self {
         Self {
@@ -24,23 +22,26 @@ impl<'src> Scanner<'src> {
         self.source.get(self.current..)?.chars().next()
     }
 
-    fn peek_peek(&self) -> Option<char> {
+    fn peekpeek(&self) -> Option<char> {
         self.source.get(self.current + 1..)?.chars().next()
     }
 
     fn next(&mut self) -> Option<char> {
-        self.peek()
-            .inspect(|c| self.current += c.len_utf8())
-            .inspect(|&c| {
-                if c == '\n' {
-                    self.line += 1;
-                }
-            })
+        let next = self.peek()?;
+
+        if next == '\n' {
+            self.line += 1;
+        }
+
+        self.current += next.len_utf8();
+
+        Some(next)
     }
 
     fn next_if_eq(&mut self, c: char) -> bool {
         if self.peek() == Some(c) {
             self.next();
+
             true
         } else {
             false
@@ -75,11 +76,12 @@ impl<'src> Scanner<'src> {
             }
             '/' => TokenKind::Slash,
             ' ' | '\r' | '\t' | '\n' => return None,
-            '"' => return Some(self.string()),
-            '0'..='9' => return Some(self.number()),
-            'a'..='z' | 'A'..='Z' | '_' => return Some(self.identifier()),
-            unknown => {
-                panic!("unexpected character: {unknown}");
+            '"' => self.string()?,
+            '0'..='9' => self.number()?,
+            'a'..='z' | 'A'..='Z' | '_' => self.identifier(),
+            unexpected => {
+                eprintln!("Unexpected character: {unexpected}");
+                return None;
             }
         };
 
@@ -92,31 +94,29 @@ impl<'src> Scanner<'src> {
         Some(token)
     }
 
-    fn string(&mut self) -> Token<'src> {
+    fn string(&mut self) -> Option<TokenKind> {
         loop {
             match self.next() {
                 Some('"') => break,
                 Some(_) => {}
-                None => panic!("unterminated string"),
+                None => {
+                    eprintln!("Unterminated string");
+                    return None;
+                }
             }
         }
 
         let data = self.source[self.start + 1..self.current - 1].to_owned();
 
-        Token {
-            kind: TokenKind::Literal(Literal::String(data)),
-            lexeme: &self.source[self.start..self.current],
-            line: self.line,
-        }
+        Some(TokenKind::Literal(Literal::String(data)))
     }
 
-    fn number(&mut self) -> Token<'src> {
+    fn number(&mut self) -> Option<TokenKind> {
         while matches!(self.peek(), Some('0'..='9')) {
             self.next();
         }
 
-        // Look for a fractional part
-        if self.peek() == Some('.') && matches!(self.peek_peek(), Some('0'..='9')) {
+        if self.peek() == Some('.') && matches!(self.peekpeek(), Some('0'..='9')) {
             self.next();
 
             while matches!(self.peek(), Some('0'..='9')) {
@@ -125,30 +125,20 @@ impl<'src> Scanner<'src> {
         }
 
         let data = self.source[self.start..self.current]
-            .parse::<f64>()
+            .parse()
             .map(Literal::Number)
-            .expect("expected parseable float");
+            .inspect_err(|err| eprintln!("Error parsing float: {err:#?}"))
+            .ok()?;
 
-        Token {
-            kind: TokenKind::Literal(data),
-            lexeme: &self.source[self.start..self.current],
-            line: self.line,
-        }
+        Some(TokenKind::Literal(data))
     }
 
-    fn identifier(&mut self) -> Token<'src> {
+    fn identifier(&mut self) -> TokenKind {
         while matches!(self.peek(), Some('a'..='z' | 'A'..='Z' | '_')) {
             self.next();
         }
 
-        let lexeme = &self.source[self.start..self.current];
-        let kind = Scanner::keyword(lexeme).unwrap_or(TokenKind::Identifier);
-
-        Token {
-            kind,
-            lexeme,
-            line: self.line,
-        }
+        Scanner::keyword(&self.source[self.start..self.current]).unwrap_or(TokenKind::Identifier)
     }
 
     fn keyword(str: &str) -> Option<TokenKind> {

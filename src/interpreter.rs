@@ -1,92 +1,96 @@
-use std::{collections::HashMap, mem};
+use std::{cell::RefCell, collections::HashMap, fmt::Debug, rc::Rc};
 
 use crate::{
-    ast::{BinaryOp, Expr, LogicalOp, Stmt, UnaryOp},
+    ast::{BinaryOp, Expr, Function, LogicalOp, Stmt, UnaryOp},
+    global::register_globals,
     token::Literal,
 };
 
+#[derive(Debug)]
+pub enum InterpreterError<'ast> {
+    Return(Value<'ast>),
+
+    OperandNotNumber,
+    OperandsNotNumber,
+    UndefinedVariable,
+    UncallableCallee,
+    ArgumentArityMismatch,
+    ExpectedInstanceInGet,
+    UndefinedProperty,
+}
+
+#[derive(Debug)]
+pub struct Interpreter<'ast> {
+    // Resolved variable lookup depth, more info in `resolver.rs`
+    locals: HashMap<*const Expr, usize>,
+    globals: Rc<Environment<'ast>>,
+    environment: Rc<Environment<'ast>>,
+}
+
 #[derive(Debug, Clone)]
-pub enum Value {
+pub struct Environment<'ast> {
+    enclosing: Option<Rc<Environment<'ast>>>,
+    values: RefCell<HashMap<String, Value<'ast>>>,
+}
+
+#[derive(Clone)]
+pub enum Value<'ast> {
     Nil,
     Bool(bool),
     Number(f64),
     String(String),
+    Class(Rc<LoxClass<'ast>>),
+    Instance(Rc<LoxInstance<'ast>>),
+    Function(Rc<dyn Callable<'ast> + 'ast>),
 }
 
 #[derive(Debug)]
-pub enum InterpreterError {
-    OperandNotNumber,
-    OperandsNotNumber,
-    UndefinedVariable,
+pub struct LoxClass<'ast> {
+    name: String,
+    methods: HashMap<String, LoxFunction<'ast>>,
 }
 
-type Result<T> = core::result::Result<T, InterpreterError>;
-
-pub struct Interpreter {
-    environment: Environment,
+#[derive(Debug)]
+pub struct LoxInstance<'ast> {
+    class: Rc<LoxClass<'ast>>,
+    fields: RefCell<HashMap<String, Value<'ast>>>,
 }
 
-#[derive(Debug, Clone, Default)]
-struct Environment {
-    enclosing: Option<Box<Environment>>,
-    values: HashMap<String, Value>,
+#[derive(Debug)]
+struct LoxFunction<'ast> {
+    declaration: &'ast Function,
+    closure: Rc<Environment<'ast>>,
+    initializer: bool,
 }
 
-impl Environment {
-    fn new() -> Self {
+pub trait Callable<'ast> {
+    fn arity(&self) -> u8;
+
+    fn call(
+        &self,
+        interpreter: &mut Interpreter<'ast>,
+        arguments: Vec<Value<'ast>>,
+    ) -> Result<Value<'ast>, InterpreterError<'ast>>;
+}
+
+impl<'ast> Interpreter<'ast> {
+    pub fn new(locals: HashMap<*const Expr, usize>) -> Self {
+        let globals = Rc::new(Environment::new());
+
+        register_globals(&globals);
+
         Self {
-            enclosing: None,
-            values: HashMap::new(),
+            locals,
+            environment: Rc::clone(&globals),
+            globals,
         }
     }
 
-    fn enclosing(enclosing: Box<Environment>) -> Self {
-        Self {
-            enclosing: Some(enclosing),
-            values: HashMap::new(),
-        }
-    }
-
-    fn get(&mut self, name: &str) -> Result<Value> {
-        if let Some(value) = self.values.get(name).cloned() {
-            Ok(value)
-        } else {
-            match self.enclosing.as_mut() {
-                Some(enclosing) => enclosing.get(name),
-                None => Err(InterpreterError::UndefinedVariable),
-            }
-        }
-    }
-
-    fn define(&mut self, name: String, value: Value) {
-        self.values.insert(name, value);
-    }
-
-    fn assign(&mut self, name: String, value: Value) -> Result<()> {
-        if self.values.contains_key(&name) {
-            self.values.insert(name, value);
-
-            Ok(())
-        } else {
-            match self.enclosing.as_mut() {
-                Some(enclosing) => enclosing.assign(name, value),
-                None => Err(InterpreterError::UndefinedVariable),
-            }
-        }
-    }
-}
-
-impl Interpreter {
-    pub fn new() -> Self {
-        Self {
-            environment: Environment::new(),
-        }
-    }
-
-    pub fn interpret(&mut self, stmts: &[Stmt]) {
+    pub fn interpret(mut self, stmts: &'ast [Stmt]) {
         for stmt in stmts {
             if let Err(err) = self.stmt(stmt) {
-                eprintln!("runtime error: {err:#?}");
+                eprintln!("Runtime error: {err:#?}");
+                return;
             }
         }
     }
@@ -109,8 +113,23 @@ impl Interpreter {
         }
     }
 
-    fn expr(&mut self, expr: &Expr) -> Result<Value> {
+    fn expr(&mut self, expr: &'ast Expr) -> Result<Value<'ast>, InterpreterError<'ast>> {
         let value = match expr {
+            Expr::Assign(assign) => {
+                let value = self.expr(&assign.value)?;
+
+                let distance = self.locals.get(&std::ptr::from_ref(expr));
+
+                match distance {
+                    Some(distance) => {
+                        self.environment
+                            .assign_at(&assign.name, value.clone(), *distance)?;
+                    }
+                    None => self.globals.assign(&assign.name, value.clone())?,
+                }
+
+                value
+            }
             Expr::Binary(binary) => {
                 let left = self.expr(&binary.left)?;
                 let right = self.expr(&binary.right)?;
@@ -139,13 +158,44 @@ impl Interpreter {
                     _ => return Err(InterpreterError::OperandsNotNumber),
                 }
             }
-            Expr::Assign(assign) => {
-                let value = self.expr(&assign.value)?;
+            Expr::Call(call) => {
+                let callee = self.expr(&call.callee)?;
 
-                self.environment
-                    .assign(assign.name.clone(), value.clone())?;
+                let mut callable =
+                    |function: &dyn Callable<'ast>| -> Result<Value<'ast>, InterpreterError<'ast>> {
+                        if function.arity() != call.args.len() as u8 {
+                            return Err(InterpreterError::ArgumentArityMismatch);
+                        }
 
-                value
+                        let arguments = call
+                            .args
+                            .iter()
+                            .map(|arg| self.expr(arg))
+                            .collect::<Result<Vec<Value>, InterpreterError>>()?;
+
+                        match function.call(self, arguments) {
+                            Ok(value) | Err(InterpreterError::Return(value)) => Ok(value),
+                            Err(other) => Err(other),
+                        }
+                    };
+
+                match callee {
+                    Value::Class(class) => callable(&class)?,
+                    Value::Function(function) => callable(function.as_ref())?,
+                    _ => return Err(InterpreterError::UncallableCallee),
+                }
+            }
+            Expr::Get(get) => {
+                let object = self.expr(&get.object)?;
+
+                if let Value::Instance(instance) = object {
+                    match instance.get(&get.name) {
+                        Some(value) => value,
+                        None => return Err(InterpreterError::UndefinedProperty),
+                    }
+                } else {
+                    return Err(InterpreterError::ExpectedInstanceInGet);
+                }
             }
             Expr::Grouping(grouping) => self.expr(&grouping.expr)?,
             Expr::Literal(literal) => match literal {
@@ -154,6 +204,29 @@ impl Interpreter {
                 Literal::String(str) => Value::String(str.clone()),
                 Literal::Number(num) => Value::Number(*num),
             },
+            Expr::Logical(logical) => {
+                let left = self.expr(&logical.left)?;
+                let truthy = Interpreter::is_truthy(&left);
+
+                match logical.operator {
+                    LogicalOp::Or if truthy => left,
+                    LogicalOp::And if !truthy => left,
+                    _ => self.expr(&logical.right)?,
+                }
+            }
+            Expr::Set(set) => {
+                let object = self.expr(&set.object)?;
+
+                if let Value::Instance(instance) = object {
+                    let value = self.expr(&set.value)?;
+                    instance.set(set.name.clone(), value.clone());
+
+                    value
+                } else {
+                    return Err(InterpreterError::ExpectedInstanceInGet);
+                }
+            }
+            Expr::This => self.lookup("this", expr)?,
             Expr::Unary(unary) => {
                 let right = self.expr(&unary.right)?;
 
@@ -163,28 +236,47 @@ impl Interpreter {
                     (UnaryOp::Bang, value) => Value::Bool(!Interpreter::is_truthy(&value)),
                 }
             }
-            Expr::Logical(logical) => {
-                let left = self.expr(&logical.left)?;
-                let truthy = Interpreter::is_truthy(&left);
-
-                match logical.operator {
-                    LogicalOp::Or if truthy => return Ok(left),
-                    LogicalOp::And if !truthy => return Ok(left),
-                    _ => {}
-                };
-
-                self.expr(&logical.right)?
-            }
-            Expr::Variable(var) => self.environment.get(var)?,
+            Expr::Variable(var) => self.lookup(var, expr)?,
         };
 
         Ok(value)
     }
 
-    fn stmt(&mut self, stmt: &Stmt) -> Result<()> {
+    fn stmt(&mut self, stmt: &'ast Stmt) -> Result<(), InterpreterError<'ast>> {
         match stmt {
             Stmt::Expr(expr) => {
                 self.expr(expr)?;
+            }
+            Stmt::Class(class) => {
+                self.environment.define(class.name.clone(), Value::Nil);
+
+                let mut methods = HashMap::new();
+
+                for method in &class.methods {
+                    methods.insert(
+                        method.name.clone(),
+                        LoxFunction::new(
+                            method,
+                            Rc::clone(&self.environment),
+                            method.name == "init",
+                        ),
+                    );
+                }
+
+                self.environment.assign(
+                    &class.name,
+                    Value::Class(Rc::new(LoxClass::new(class.name.clone(), methods))),
+                )?;
+            }
+            Stmt::Function(function) => {
+                self.environment.define(
+                    function.name.clone(),
+                    Value::Function(Rc::new(LoxFunction::new(
+                        function,
+                        Rc::clone(&self.environment),
+                        false,
+                    ))),
+                );
             }
             Stmt::Var(var) => {
                 let value = match &var.initializer {
@@ -194,9 +286,23 @@ impl Interpreter {
 
                 self.environment.define(var.name.clone(), value);
             }
-            Stmt::Print(expr) => {
-                println!("{:?}", self.expr(expr)?);
+            Stmt::Return(expr) => {
+                let value = match expr {
+                    Some(expr) => self.expr(expr)?,
+                    None => Value::Nil,
+                };
+
+                return Err(InterpreterError::Return(value));
             }
+            Stmt::Print(expr) => match self.expr(expr)? {
+                Value::Nil => println!("nil"),
+                Value::Bool(bool) => println!("{bool}"),
+                Value::Number(num) => println!("{num}"),
+                Value::String(str) => println!("{str}"),
+                Value::Class(class) => println!("{}", class.name),
+                Value::Function(_callable) => println!("<fn>"),
+                Value::Instance(instance) => println!("{} instance", instance.class.name),
+            },
             Stmt::If(if_stmt) => {
                 let condition = self.expr(&if_stmt.condition)?;
 
@@ -211,23 +317,247 @@ impl Interpreter {
                     self.stmt(&while_stmt.body)?;
                 }
             }
-            Stmt::Block(block) => {
-                self.environment =
-                    Environment::enclosing(Box::new(mem::take(&mut self.environment)));
-
-                for stmt in block {
-                    self.stmt(stmt)?;
-                }
-
-                self.environment = mem::take(
-                    self.environment
-                        .enclosing
-                        .as_mut()
-                        .expect("should have parent environment"),
-                );
+            Stmt::Block(stmts) => {
+                self.block(
+                    stmts,
+                    Rc::new(Environment::enclosing(Rc::clone(&self.environment))),
+                )?;
             }
-        };
+        }
 
         Ok(())
+    }
+
+    fn block(
+        &mut self,
+        stmts: &'ast [Stmt],
+        environment: Rc<Environment<'ast>>,
+    ) -> Result<(), InterpreterError<'ast>> {
+        let original = Rc::clone(&self.environment);
+
+        self.environment = environment;
+
+        for stmt in stmts {
+            if let Err(err) = self.stmt(stmt) {
+                self.environment = original;
+
+                return Err(err);
+            }
+        }
+
+        self.environment = original;
+
+        Ok(())
+    }
+
+    pub fn lookup(
+        &self,
+        name: &str,
+        expr: &'ast Expr,
+    ) -> Result<Value<'ast>, InterpreterError<'ast>> {
+        let distance = self.locals.get(&std::ptr::from_ref(expr));
+
+        let value = match distance {
+            Some(distance) => self.environment.get_at(name, *distance)?,
+            None => self.globals.get(name)?,
+        };
+
+        Ok(value)
+    }
+}
+
+impl<'ast> Environment<'ast> {
+    pub fn new() -> Self {
+        Self {
+            enclosing: None,
+            values: RefCell::new(HashMap::new()),
+        }
+    }
+
+    pub fn enclosing(enclosing: Rc<Environment<'ast>>) -> Self {
+        Self {
+            enclosing: Some(enclosing),
+            values: RefCell::new(HashMap::new()),
+        }
+    }
+
+    pub fn get(&self, name: &str) -> Result<Value<'ast>, InterpreterError<'ast>> {
+        match self.values.borrow().get(name).cloned() {
+            Some(value) => Ok(value),
+            None => Err(InterpreterError::UndefinedVariable),
+        }
+    }
+
+    pub fn get_at(
+        self: &Rc<Self>,
+        name: &str,
+        distance: usize,
+    ) -> Result<Value<'ast>, InterpreterError<'ast>> {
+        self.ancestor(distance).get(name)
+    }
+
+    pub fn define(&self, name: String, value: Value<'ast>) {
+        self.values.borrow_mut().insert(name, value);
+    }
+
+    pub fn assign(&self, name: &str, value: Value<'ast>) -> Result<(), InterpreterError<'ast>> {
+        match self.values.borrow_mut().get_mut(name) {
+            Some(var) => {
+                *var = value;
+                Ok(())
+            }
+            None => Err(InterpreterError::UndefinedVariable),
+        }
+    }
+
+    pub fn assign_at(
+        self: &Rc<Self>,
+        name: &str,
+        value: Value<'ast>,
+        distance: usize,
+    ) -> Result<(), InterpreterError<'ast>> {
+        self.ancestor(distance).assign(name, value)
+    }
+
+    fn ancestor(self: &Rc<Self>, distance: usize) -> Rc<Environment<'ast>> {
+        let mut environment = Rc::clone(self);
+
+        for _ in 0..distance {
+            environment = environment
+                .enclosing
+                .clone()
+                .expect("variable lookup distance should've been right");
+        }
+
+        environment
+    }
+}
+
+impl<'ast> LoxClass<'ast> {
+    fn new(name: String, methods: HashMap<String, LoxFunction<'ast>>) -> Self {
+        Self { name, methods }
+    }
+
+    fn method(&self, name: &str) -> Option<LoxFunction<'ast>> {
+        let function = self.methods.get(name)?;
+
+        Some(LoxFunction {
+            declaration: function.declaration,
+            closure: Rc::clone(&function.closure),
+            initializer: function.initializer,
+        })
+    }
+}
+
+impl<'ast> LoxInstance<'ast> {
+    pub fn new(class: Rc<LoxClass<'ast>>) -> Self {
+        Self {
+            class,
+            fields: RefCell::new(HashMap::new()),
+        }
+    }
+
+    fn get(self: Rc<Self>, name: &str) -> Option<Value<'ast>> {
+        if let Some(value) = self.fields.borrow_mut().get(name).cloned() {
+            Some(value)
+        } else if let Some(function) = self.class.method(name) {
+            Some(Value::Function(Rc::new(function.bind(Rc::clone(&self)))))
+        } else {
+            None
+        }
+    }
+
+    fn set(&self, name: String, value: Value<'ast>) {
+        self.fields.borrow_mut().insert(name, value);
+    }
+}
+
+impl<'ast> LoxFunction<'ast> {
+    fn new(declaration: &'ast Function, closure: Rc<Environment<'ast>>, initializer: bool) -> Self {
+        Self {
+            declaration,
+            closure,
+            initializer,
+        }
+    }
+
+    fn bind(&self, instance: Rc<LoxInstance<'ast>>) -> LoxFunction<'ast> {
+        let environment = Rc::new(Environment::enclosing(Rc::clone(&self.closure)));
+
+        environment.define("this".to_owned(), Value::Instance(instance));
+
+        Self {
+            declaration: self.declaration,
+            closure: environment,
+            initializer: self.initializer,
+        }
+    }
+}
+
+impl<'ast> Callable<'ast> for Rc<LoxClass<'ast>> {
+    fn arity(&self) -> u8 {
+        match self.methods.get("init") {
+            Some(initializer) => initializer.arity(),
+            None => 0,
+        }
+    }
+
+    fn call(
+        &self,
+        interpreter: &mut Interpreter<'ast>,
+        arguments: Vec<Value<'ast>>,
+    ) -> Result<Value<'ast>, InterpreterError<'ast>> {
+        let instance = Rc::new(LoxInstance::new(Rc::clone(self)));
+
+        if let Some(initalizer) = self.method("init") {
+            initalizer
+                .bind(Rc::clone(&instance))
+                .call(interpreter, arguments)?;
+        }
+
+        Ok(Value::Instance(instance))
+    }
+}
+
+impl<'ast> Callable<'ast> for LoxFunction<'ast> {
+    fn arity(&self) -> u8 {
+        self.declaration.args.len() as u8
+    }
+
+    fn call(
+        &self,
+        interpreter: &mut Interpreter<'ast>,
+        arguments: Vec<Value<'ast>>,
+    ) -> Result<Value<'ast>, InterpreterError<'ast>> {
+        let environment = Rc::new(Environment::enclosing(Rc::clone(&self.closure)));
+
+        for (name, value) in self.declaration.args.iter().zip(arguments) {
+            environment.define(name.clone(), value);
+        }
+
+        interpreter.block(&self.declaration.body, environment)?;
+
+        if self.initializer {
+            return Ok(self
+                .closure
+                .get("this")
+                .expect("expected parent environment contain 'this' binding"));
+        }
+
+        Ok(Value::Nil)
+    }
+}
+
+impl Debug for Value<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Nil => write!(f, "Nil"),
+            Self::Bool(arg0) => f.debug_tuple("Bool").field(arg0).finish(),
+            Self::Number(arg0) => f.debug_tuple("Number").field(arg0).finish(),
+            Self::String(arg0) => f.debug_tuple("String").field(arg0).finish(),
+            Self::Class(_arg0) => write!(f, "Class"),
+            Self::Instance(_arg0) => write!(f, "Instance"),
+            Self::Function(_arg0) => write!(f, "Function"),
+        }
     }
 }
