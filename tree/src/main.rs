@@ -1,3 +1,5 @@
+use std::{env, fs};
+
 use interpreter::Interpreter;
 use parser::Parser;
 use resolver::Resolver;
@@ -13,11 +15,14 @@ mod scanner;
 mod token;
 
 fn main() {
-    let source = include_str!("sample.lox");
+    let args = env::args().collect::<Vec<String>>();
 
-    let scanner = Scanner::new(source);
+    let filename = &args.get(1).expect("expected filename");
+    let source = fs::read_to_string(filename).expect("error reading file");
 
-    let Some(stmts) = Parser::new(source, scanner).parse() else {
+    let scanner = Scanner::new(&source);
+
+    let Some(stmts) = Parser::new(&source, scanner).parse() else {
         return;
     };
 
